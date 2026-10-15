@@ -136,7 +136,7 @@
     }).catch(function (e) { if (e.auth) return markExpired(); if (manual || !had) toast(e.message, 'err'); if (!had) render(); });
   }
   function loadCounts() {
-    if (!S.session || !online()) return;
+    if (!S.session || !online() || !canViewMhc()) return;
     api('formListMhc', { token: S.session.token, filter: 'counts' }).then(function (r) { S.counts = r.counts; if (S.view === 'home' || S.view === 'list') render(); }).catch(function () { });
   }
   function markExpired() { if (!S.session) return; S.session.expired = true; saveSession(); toast('Sesi habis — login ulang. Data antrean tetap aman.', 'warn'); render(); }
@@ -232,7 +232,7 @@
     if (!S.boot) main.appendChild(h('div', { class: 'card center' }, h('p', null, online() ? 'Mengambil data form dari Google Sheet…' : 'Sambungkan ke internet sekali untuk mengunduh data form.'),
       h('button', { class: 'btn', onclick: function () { refreshBoot(true); } }, 'Coba lagi')));
     else if (S.view === 'mhc' && can('mhcInput')) main.appendChild(viewWizard());
-    else if (S.view === 'list') main.appendChild(viewList());
+    else if (S.view === 'list' && canViewMhc()) main.appendChild(viewList());
     else if (S.view === 'detail' && S.detail) main.appendChild(viewDetail());
     else if (S.view === 'queue') main.appendChild(viewQueue());
     else main.appendChild(viewHome());
@@ -266,7 +266,7 @@
         h('span', { class: 'ti' }, icon), h('span', null, label), extra || null);
     }
     return h('nav', { class: 'tabs' }, tab('home', '⌂', 'Beranda'), can('mhcInput') ? tab('mhc', '＋', 'MHC Baru') : null,
-      tab('list', '☰', 'Daftar MHC'), tab('queue', '⇅', 'Antrean', h('span', { id: 'qbadge', class: 'badge', style: n ? '' : 'display:none' }, n)));
+      canViewMhc() ? tab('list', '☰', invoiceOnly() ? 'MHC Selesai' : 'Daftar MHC') : null, tab('queue', '⇅', 'Antrean', h('span', { id: 'qbadge', class: 'badge', style: n ? '' : 'display:none' }, n)));
   }
   function doInstall() { if (!S.installEvt) return; S.installEvt.prompt(); S.installEvt.userChoice.then(function () { S.installEvt = null; renderHeader(); }); }
 
@@ -316,8 +316,9 @@
         badge ? h('span', { class: 'tile-badge' }, badge) : null);
     };
     var inbox = function (f) { return function () { openList(f); }; };
+    var soon = NEXT_MENUS.filter(function (m) { return allowed(m[0], m[3]); });
     return h('div', null,
-      h('h2', { class: 'page-t' }, 'Halo, ' + S.session.user.name.split(' ')[0]),
+      h('h2', { class: 'page-t' }, 'Halo, ' + greetName(S.session.user.name)),
       d && can('mhcInput') ? h('div', { class: 'banner info' }, h('span', null, 'Ada draft MHC yang belum selesai' + (d.values && d.values.CUSTOMER ? ' (' + d.values.CUSTOMER + ')' : '') + '.'),
         h('button', { class: 'btn small', onclick: function () { startWizard(); } }, 'Lanjutkan')) : null,
       h('div', { class: 'tiles' },
@@ -326,13 +327,29 @@
         can('quoteCreate') ? tile('Rp', 'Perlu Quotation', 'Buat quotation di SAP, isi nomornya di sini', inbox('needquote'), '', C.needquote) : null,
         can('quoteStatus') ? (isPssrOnly() ? tile('⇄', 'Quotation saya', 'Customer yang Anda pegang: update Negosiasi / PO / Invoice / Lose', inbox('myopen'), '', C.myopen)
           : tile('⇄', 'Quotation Berjalan', 'Update Negosiasi / Approved (PO) / Invoice / Lose', inbox('open'), '', C.open)) : null,
-        tile('☰', 'Daftar MHC', 'Cari MHC, lihat detail, download PDF', inbox(defaultFilter())),
+        invoiceOnly() ? tile('☎', 'MHC Selesai (Invoice)', 'Untuk survei kepuasan pelanggan · kontak customer & PDF', inbox('invoice'), '', C.invoice)
+          : canViewMhc() ? tile('☰', 'Daftar MHC', 'Cari MHC, lihat detail, download PDF', inbox(defaultFilter())) : null,
         tile('⇅', 'Antrean', n ? n + ' data menunggu dikirim' : 'Semua data sudah terkirim', function () { go('queue'); }, '', n || null)),
-      h('h3', { class: 'sec-t' }, 'Segera hadir'),
-      h('div', { class: 'tiles small' }, tile('◷', 'Mechanics Activity Report', 'Tahap berikutnya', null, 'soon'), tile('◫', 'Machine Yard Activity', 'Tahap berikutnya', null, 'soon'),
-        tile('☏', 'Call Center', 'Tahap berikutnya', null, 'soon'), tile('⟳', 'Update Population', 'Tahap berikutnya', null, 'soon')));
+      soon.length ? h('h3', { class: 'sec-t' }, 'Segera hadir') : null,
+      soon.length ? h('div', { class: 'tiles small' }, soon.map(function (m) { return tile(m[1], m[2], 'Tahap berikutnya', null, 'soon'); })) : null);
   }
-  function defaultFilter() { return can('partsJds') && (S.counts || {}).jds ? 'jds' : can('quoteCreate') ? 'needquote' : can('quoteStatus') ? (isPssrOnly() ? 'myopen' : 'open') : can('mhcInput') ? 'mine' : 'all'; }
+  // Menu form berikutnya: tampil hanya untuk role yang mengisinya (ADMIN_HO selalu)
+  var NEXT_MENUS = [
+    ['marInput', '◷', 'Mechanics Activity Report', ['MEKANIK', 'SERVICE_LEADER', 'ADMIN_SERVICE']],
+    ['yardInput', '◫', 'Machine Yard Activity', ['MEKANIK', 'SERVICE_LEADER', 'ADMIN_SERVICE']],
+    ['callCenter', '☏', 'Call Center', ['CALL_CENTER']],
+    ['popUpdate', '⟳', 'Update Population', ['ADMIN_PARTS', 'ADMIN_SERVICE']]
+  ];
+  function hasRole(list) { var R = S.session.user.roles || []; return R.indexOf('ADMIN_HO') >= 0 || list.some(function (r) { return R.indexOf(r) >= 0; }); }
+  // hak akses dari server bila ada; cadangan dari role (untuk sesi login versi lama)
+  function allowed(perm, roles) { var P = perms(); return perm in P ? !!P[perm] : hasRole(roles); }
+  function invoiceOnly() { var P = perms(); if ('mhcViewInvoice' in P) return !P.mhcView && !!P.mhcViewInvoice; var R = S.session.user.roles || []; return R.length > 0 && R.every(function (r) { return r === 'CALL_CENTER'; }); }
+  function canViewMhc() { var P = perms(); if ('mhcViewInvoice' in P) return !!(P.mhcView || P.mhcViewInvoice); return true; }
+  function greetName(n) {
+    var parts = String(n || '').split(/\s+/).filter(function (w) { return w.replace(/\./g, '').length > 1; });
+    return parts[0] || String(n || '').split(' ')[0];
+  }
+  function defaultFilter() { if (invoiceOnly()) return 'invoice'; return can('partsJds') && (S.counts || {}).jds ? 'jds' : can('quoteCreate') ? 'needquote' : can('quoteStatus') ? (isPssrOnly() ? 'myopen' : 'open') : can('mhcInput') ? 'mine' : 'all'; }
 
   /* ================= wizard ================= */
   var STEPS = ['Unit', 'Checklist', 'Summary', 'Parts', 'Foto', 'Kirim'];
@@ -682,9 +699,9 @@
   }
 
   /* ================= daftar ================= */
-  function isPssrOnly() { var R = S.session.user.roles || []; return R.indexOf('PSSR') >= 0 && R.indexOf('ADMIN_PARTS') < 0 && R.indexOf('ADMIN_HO') < 0; }
+  function isPssrOnly() { var R = S.session.user.roles || []; return R.indexOf('PSSR') >= 0 && R.indexOf('ADMIN_PARTS') < 0 && R.indexOf('ADMIN_SERVICE') < 0 && R.indexOf('ADMIN_HO') < 0; }
   var FILTERS = [['jds', 'Cari Part di JDS', 'partsJds'], ['needquote', 'Perlu Quotation', 'quoteCreate'], ['myopen', 'Quotation saya', 'pssrOnly'],
-                 ['open', 'Quotation Berjalan', 'quoteStatus'],
+                 ['open', 'Quotation Berjalan', 'quoteStatus'], ['invoice', 'Selesai (Invoice)', 'invOnly'],
                  ['mine', 'Milik saya', 'mhcInput'], ['all', 'Semua', '']];
   function openList(f) { S.list.filter = f; S.list.rows = null; go('list'); loadList(); }
   function loadList() {
@@ -701,7 +718,8 @@
   function viewList() {
     var L = S.list, C = S.counts || {};
     if (!L.filter) L.filter = defaultFilter();
-    var filters = FILTERS.filter(function (f) { return !f[2] || (f[2] === 'pssrOnly' ? isPssrOnly() : can(f[2])); });
+    var filters = invoiceOnly() ? FILTERS.filter(function (f) { return f[0] === 'invoice'; })
+      : FILTERS.filter(function (f) { return f[2] !== 'invOnly' && (!f[2] || (f[2] === 'pssrOnly' ? isPssrOnly() : can(f[2]))); });
     var q = h('input', { class: 'inp', type: 'search', placeholder: 'Cari MHC No / customer / SN / Call ID / No. Quotation…', value: L.q, enterkeyhint: 'search' });
     var head = h('form', { class: 'card', onsubmit: function (e) { e.preventDefault(); L.q = q.value.trim(); loadList(); } },
       h('div', { class: 'chips filt' }, filters.map(function (f) {
@@ -759,6 +777,10 @@
     var g = function (k) { return F[k] >= 0 ? v[F[k]] : ''; };
     var bads = [];
     M.groups.forEach(function (gr) { gr.items.forEach(function (it) { if (String(v[it.col]).toUpperCase() === 'BAD') bads.push({ g: gr.title, l: it.label, r: v[it.rem] }); }); });
+    var tel = String(g('PHONE') || '').replace(/[^\d+]/g, '');
+    var survey = invoiceOnly() ? h('div', { class: 'card' }, h('h2', null, 'Kontak untuk survei'),
+      kvRow('Contact Person', g('CONTACT') || '—'), g('PHONE') ? h('div', { class: 'kv' }, h('span', null, 'Phone'), h('a', { href: 'tel:' + tel, class: 'tel' }, String(g('PHONE')))) : kvRow('Phone', '—'),
+      kvRow('Tanggal Invoice', [g('P_INVDATE') && 'Parts ' + fmtDate(g('P_INVDATE')), g('S_INVDATE') && 'Service ' + fmtDate(g('S_INVDATE'))].filter(Boolean).join(' · '))) : null;
     var info = h('div', { class: 'card summary' },
       h('h2', null, g('CUSTOMER') || '(tanpa customer)'),
       h('div', { class: 'chips', style: 'margin:-4px 0 8px' }, h('span', { class: 'chip' }, r.mhcNo || 'Data lama'), chip(g('MHC_STATUS')), g('STATUS') ? chip(g('STATUS'), machineTone(g('STATUS'))) : null),
@@ -768,7 +790,7 @@
       kvRow('PSSR', g('PSSR') ? g('PSSR') + (g('PSSR_ATTEND') === 'Ya' ? ' (ikut ke lokasi)' : g('PSSR_ATTEND') === 'Tidak' ? ' (tidak ikut)' : '') : ''),
       kvRow('Status terakhir', [g('STATUS_DATE') && fmtDate(g('STATUS_DATE')), g('STATUS_BY')].filter(Boolean).join(' · ')),
       !r.isOld ? h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: function () { downloadPdf(r); } }, '⬇ Download PDF'),
-        h('button', { class: 'btn ghost small', onclick: function () { downloadPdf(r, true); } }, 'Buat ulang PDF')) : null);
+        invoiceOnly() ? null : h('button', { class: 'btn ghost small', onclick: function () { downloadPdf(r, true); } }, 'Buat ulang PDF')) : null);
     var findings = !r.isOld ? h('div', { class: 'card' }, h('h2', null, 'Temuan (' + bads.length + ' BAD)'),
       bads.length ? bads.map(function (b) { return h('div', { class: 'qitem' }, h('div', { class: 'qmain' }, h('b', null, b.l), h('div', { class: 'muted small' }, b.g), h('div', { class: 'small err-text' }, b.r))); }) : h('p', { class: 'muted' }, 'Tidak ada temuan.'),
       g('DETAIL') ? kvRow('Detail Problem', g('DETAIL')) : null, g('ACTION') ? kvRow('Action', g('ACTION')) : null) : null;
@@ -791,7 +813,7 @@
           jdsBox)));
     })) : null;
     var office = viewOffice(D, r, v);
-    var left = h('div', { class: 'col-left' }, info, findings, parts), right = h('div', { class: 'col-right' }, office);
+    var left = h('div', { class: 'col-left' }, survey, info, findings, parts), right = h('div', { class: 'col-right' }, office);
     return h('div', null, back, h('div', { class: 'detail-grid' }, left, right));
   }
   function viewOffice(D, r, v) {
@@ -803,7 +825,7 @@
         var val = v[fd.col] == null ? '' : v[fd.col], editable = can(fd.perm), inp;
         if (!editable) return val === '' ? null : kvRow(fd.h.replace(/^(Parts|Service) /, ''), fd.type === 'number' ? fmtRp(val) : fd.type === 'date' ? fmtDate(val) : val);
         editAny = true;
-        if (fd.type === 'select') inp = h('select', { class: 'inp' }, h('option', { value: '' }, '—'), fd.options.map(function (o) { return h('option', { value: o, selected: o === val }, o); }));
+        if (fd.type === 'select') inp = h('select', { class: 'inp' }, h('option', { value: '' }, '—'), fd.options.filter(function (o) { return o !== 'Invoice' || val === 'Invoice'; }).map(function (o) { return h('option', { value: o, selected: o === val }, o); }));
         else if (fd.type === 'date') inp = h('input', { class: 'inp', type: 'date', value: val });
         else if (fd.type === 'number') { inp = h('input', { class: 'inp num', inputmode: 'decimal', value: val === '' ? '' : fmtNum(val), placeholder: '0' }); inp.addEventListener('blur', function () { var n = parseNum(inp.value); if (!isNaN(n)) inp.value = fmtNum(n); }); }
         else if (fd.type === 'textarea') { inp = h('textarea', { class: 'inp', rows: 2 }); inp.value = val; }

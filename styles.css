@@ -305,3 +305,4 @@ select.inp { background-image: linear-gradient(45deg, transparent 50%, var(--mut
 .kv span { flex: 0 1 auto; }
 .kv b { min-width: 0; overflow-wrap: anywhere; }
 .grid2 > * { min-width: 0; }
+.kv a.tel { font-weight: 700; color: #2b5fb3; text-decoration: none; }
