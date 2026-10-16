@@ -306,3 +306,11 @@ select.inp { background-image: linear-gradient(45deg, transparent 50%, var(--mut
 .kv b { min-width: 0; overflow-wrap: anywhere; }
 .grid2 > * { min-width: 0; }
 .kv a.tel { font-weight: 700; color: #2b5fb3; text-decoration: none; }
+.tile.late { border-color: #e9b4b0; background: #fff7f6; }
+.tile.late .tile-ic { background: var(--err-bg); }
+.review-card { border-color: var(--accent); }
+.sl-add { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 4px; }
+.sl-add .picker { margin-bottom: 8px; }
+.part .icon-btn.danger { flex: none; width: 34px; height: 34px; font-size: 14px; }
+.qitem.linkrow { width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left; cursor: pointer; align-items: center; }
+.qitem.linkrow:hover { background: #fffaf0; }
