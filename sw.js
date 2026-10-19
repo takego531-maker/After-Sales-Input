@@ -1,11 +1,15 @@
-/* Service Worker — menyimpan tampilan aplikasi di HP supaya bisa dibuka tanpa sinyal.
-   Naikkan CACHE (mis. mhc-v1.0.1) setiap kali file aplikasi diubah. */
-var CACHE = 'asi-v2.3.1';
+/* Service Worker — menyimpan aplikasi di HP supaya bisa dibuka tanpa sinyal.
+   File aplikasi diambil dari internet dulu (versi terbaru), cache hanya dipakai saat offline.
+   Naikkan CACHE setiap kali file aplikasi diubah. */
+var CACHE = 'asi-v2.3.2';
 var SHELL = ['./', './index.html', './app.js', './styles.css', './config.js', './manifest.webmanifest',
              './icons/icon-192.png', './icons/icon-512.png', './logos/ipe.png', './logos/ike.png'];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
+  // cache: 'reload' = lewati cache browser supaya yang tersimpan benar-benar versi terbaru
+  e.waitUntil(caches.open(CACHE).then(function (c) {
+    return Promise.all(SHELL.map(function (u) { return fetch(new Request(u, { cache: 'reload' })).then(function (r) { if (r.ok) return c.put(u, r); }); }));
+  }).then(function () { return self.skipWaiting(); }));
 });
 
 self.addEventListener('activate', function (e) {
@@ -19,20 +23,19 @@ self.addEventListener('fetch', function (e) {
   if (req.method !== 'GET') return;                       // POST ke Apps Script tidak disentuh
   var url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  var isAsset = /\.(png|jpg|jpeg|svg|webmanifest)$/.test(url.pathname);
 
-  // Stale-while-revalidate: tampil cepat dari cache, update di belakang layar
-  e.respondWith(caches.open(CACHE).then(function (cache) {
-    return cache.match(req, { ignoreSearch: true }).then(function (cached) {
-      var net = fetch(req).then(function (res) {
-        if (res && res.ok) cache.put(req, res.clone());
-        return res;
-      }).catch(function () { return null; });
-      if (cached) { e.waitUntil(net); return cached; }
-      return net.then(function (res) {
-        if (res) return res;
-        if (req.mode === 'navigate') return cache.match('./index.html');
-        return new Response('', { status: 504 });
-      });
+  if (isAsset) {   // gambar: cache dulu
+    e.respondWith(caches.match(req, { ignoreSearch: true }).then(function (c) { return c || fetch(req); }));
+    return;
+  }
+  // halaman & kode: internet dulu (no-cache), cadangan cache saat offline
+  e.respondWith(fetch(new Request(req, { cache: 'no-cache' })).then(function (res) {
+    if (res && res.ok) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(req, copy); }); }
+    return res;
+  }).catch(function () {
+    return caches.match(req, { ignoreSearch: true }).then(function (c) {
+      return c || (req.mode === 'navigate' ? caches.match('./index.html') : new Response('', { status: 504 }));
     });
   }));
 });

@@ -1321,7 +1321,14 @@
   window.addEventListener('resize', debounce(function () { if (wide() !== lastWide) { lastWide = wide(); if (S.view !== 'mhc') render(); } }, 200));
   setInterval(syncQueue, 60000);
   window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); S.installEvt = e; renderHeader(); });
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch(function () { });
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    var hadCtrl = !!navigator.serviceWorker.controller, reloaded = false;
+    // versi baru aktif → muat ulang sekali supaya langsung memakai file terbaru
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (!hadCtrl || reloaded) return; reloaded = true; location.reload(); });
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) reg.update().catch(function () { }); });
+    }).catch(function () { });
+  }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () { });
   loadQueue().catch(function () { }).then(function () { render(); if (S.session && !S.session.expired) refreshBoot(false).then(syncQueue); });
 })();
