@@ -314,3 +314,24 @@ select.inp { background-image: linear-gradient(45deg, transparent 50%, var(--mut
 .part .icon-btn.danger { flex: none; width: 34px; height: 34px; font-size: 14px; }
 .qitem.linkrow { width: 100%; background: none; border-left: 0; border-right: 0; border-bottom: 0; text-align: left; cursor: pointer; align-items: center; }
 .qitem.linkrow:hover { background: #fffaf0; }
+/* MAR */
+.mar-nav { display: flex; align-items: center; gap: 10px; }
+.mar-nav .icon-btn { background: var(--bg); color: var(--ink); flex: none; }
+.mar-date { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.mar-date .inp.sm { margin: 0; max-width: 200px; text-align: center; }
+.mar-tot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.mar-tot .big { font-size: 20px; font-weight: 800; }
+.mar-act { align-items: center; }
+.mar-time { display: flex; flex-direction: column; align-items: center; width: 52px; flex: none; font-variant-numeric: tabular-nums; }
+.mar-dur { font-weight: 700; color: var(--ok); margin: -6px 0 10px; min-height: 18px; }
+.seg.mar-cat { flex-wrap: wrap; }
+.seg.mar-cat .seg-btn { min-width: 30%; font-size: 13px; }
+.seg.mar-cat .seg-btn.on.v-travel { background: #2b5fb3; }
+.seg.mar-cat .seg-btn.on.v-working { background: var(--ok); }
+.seg.mar-cat .seg-btn.on.v-training { background: #b07a00; }
+.seg.mar-cat .seg-btn.on.v-standby { background: var(--err); }
+.mar-day { padding: 0; overflow: hidden; }
+.mar-day .g-head { gap: 10px; }
+.mar-sum { text-align: right; white-space: nowrap; }
+.mar-acts { padding: 0 16px 12px; }
+.mar-tot .big.small-big { font-size: 14px; color: var(--err); }

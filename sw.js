@@ -1,6 +1,6 @@
 /* Service Worker — menyimpan tampilan aplikasi di HP supaya bisa dibuka tanpa sinyal.
    Naikkan CACHE (mis. mhc-v1.0.1) setiap kali file aplikasi diubah. */
-var CACHE = 'asi-v2.2.1';
+var CACHE = 'asi-v2.3.1';
 var SHELL = ['./', './index.html', './app.js', './styles.css', './config.js', './manifest.webmanifest',
              './icons/icon-192.png', './icons/icon-512.png', './logos/ipe.png', './logos/ike.png'];
 
