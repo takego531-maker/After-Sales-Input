@@ -7,6 +7,7 @@
   var KEY = {
     session: 'asi.session', lastLogin: 'asi.lastLogin', sent: 'asi.sent', nik: 'asi.nik',
     boot: function (s) { return 'asi.boot21.' + s.company + '.' + s.user.username; },
+    counts: function (s) { return 'asi.counts.' + s.company + '.' + s.user.username; },
     draft: function (s) { return 'asi.mhcDraft21.' + s.company + '.' + s.user.username; }
   };
   var store = {
@@ -48,7 +49,7 @@
     session: store.get(KEY.session, null), boot: null, view: 'home', syncing: false, installEvt: null, queue: [],
     wiz: null, list: { filter: null, q: '', rows: null, loading: false }, counts: null, detail: null
   };
-  if (S.session) S.boot = store.get(KEY.boot(S.session), null);
+  if (S.session) { S.boot = store.get(KEY.boot(S.session), null); S.counts = store.get(KEY.counts(S.session), null); }
 
   /* ================= helpers ================= */
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -129,20 +130,27 @@
     var had = !!S.boot;
     if (manual) toast('Memperbarui data…');
     return api('formBootstrap', { token: S.session.token }, 60000).then(function (r) {
+      var cnt = r.counts; delete r.counts;
       S.boot = r; S.session.user = r.user; saveSession(); store.set(KEY.boot(S.session), r);
+      if (cnt && Object.keys(cnt).length) setCounts(cnt);
       if (!had || manual) render(); else renderHeader();
       if (manual) toast('Data diperbarui · ' + r.population.length + ' unit · ' + r.serviceCalls.length + ' Call ID', 'ok');
-      loadCounts();
+      if (!cnt || !Object.keys(cnt).length) loadCounts();
     }).catch(function (e) { if (e.auth) return markExpired(); if (manual || !had) toast(e.message, 'err'); if (!had) render(); });
+  }
+  function setCounts(c) {
+    S.counts = Object.assign({}, S.counts || {}, c || {});
+    if (S.session) store.set(KEY.counts(S.session), S.counts);
+    if (S.view === 'home' || S.view === 'list') render();
   }
   function loadCounts() {
     if (!S.session || !online()) return;
     if (!canViewMhc()) { if (can('marReview')) loadMarCount(); return; }
-    api('formListMhc', { token: S.session.token, filter: 'counts' }).then(function (r) { S.counts = Object.assign(S.counts || {}, r.counts); if (S.view === 'home' || S.view === 'list') render(); }).catch(function () { });
+    api('formListMhc', { token: S.session.token, filter: 'counts' }).then(function (r) { setCounts(r.counts); }).catch(function () { });
     if (can('marReview')) api('formListMar', { token: S.session.token, scope: 'branch', from: isoAdd(todayISO(), -13), to: todayISO(), pending: true })
-      .then(function (r) { S.counts = Object.assign(S.counts || {}, { marPending: r.pendingDays }); if (S.view === 'home') render(); }).catch(function () { });
+      .then(function (r) { setCounts({ marPending: r.pendingDays }); }).catch(function () { });
   }
-  function loadMarCount() { api('formListMar', { token: S.session.token, scope: 'branch', from: isoAdd(todayISO(), -13), to: todayISO(), pending: true }).then(function (r) { S.counts = Object.assign(S.counts || {}, { marPending: r.pendingDays }); if (S.view === 'home') render(); }).catch(function () { }); }
+  function loadMarCount() { api('formListMar', { token: S.session.token, scope: 'branch', from: isoAdd(todayISO(), -13), to: todayISO(), pending: true }).then(function (r) { setCounts({ marPending: r.pendingDays }); }).catch(function () { }); }
   function markExpired() { if (!S.session) return; S.session.expired = true; saveSession(); toast('Sesi habis — login ulang. Data antrean tetap aman.', 'warn'); render(); }
   function logout(force) {
     var pend = myQueue().length;
@@ -291,7 +299,7 @@
       api('formLogin', { username: user.value.trim(), password: pass.value, company: company }).then(function (r) {
         S.session = { token: r.token, user: r.user, company: r.company, loginAt: Date.now() }; saveSession();
         store.set(KEY.lastLogin, { username: r.user.username, company: r.company });
-        S.boot = store.get(KEY.boot(S.session), null); S.view = 'home'; render();
+        S.boot = store.get(KEY.boot(S.session), null); S.counts = store.get(KEY.counts(S.session), null); S.view = 'home'; render();
         return refreshBoot(false).then(syncQueue);
       }).catch(function (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Masuk'; });
     }
@@ -747,7 +755,7 @@
     var L = S.list;
     if (!online()) { toast('Daftar MHC butuh koneksi internet', 'warn'); return; }
     L.loading = true; if (S.view === 'list') render();
-    api('formListMhc', { token: S.session.token, q: L.q, filter: L.filter || 'all' }, 60000).then(function (r) { L.rows = r.rows; S.counts = r.counts; L.loading = false; if (S.view === 'list') render(); })
+    api('formListMhc', { token: S.session.token, q: L.q, filter: L.filter || 'all', limit: 50 }, 60000).then(function (r) { L.rows = r.rows; L.hasMore = !!r.hasMore; L.loading = false; setCounts(r.counts); if (S.view === 'list') render(); })
       .catch(function (e) { L.loading = false; if (e.auth) return markExpired(); toast(e.message, 'err'); if (S.view === 'list') render(); });
   }
   function sideChips(r) {
@@ -787,7 +795,13 @@
         h('div', { class: 'chips' }, chip(r.mhcStatus), r.needReason ? chip('Lewat ' + r.lateDays + ' hari', 'bad') : null, r.callCount > 1 ? chip('Call ID sama · ' + r.callCount + ' MHC', 'info') : null, r.status ? chip(r.status, machineTone(r.status)) : null, r.bad ? chip(r.bad + ' BAD', 'bad') : null, sideChips(r)),
         r.parts ? h('div', { class: 'small muted', style: 'margin-top:6px' }, 'Parts: ' + r.parts) : null);
     });
-    return h('div', null, head, body);
+    var more = L.rows && L.rows.length && L.hasMore ? h('button', { class: 'btn block', style: 'margin-bottom:12px', disabled: !!L.moreLoading, onclick: function () {
+      L.moreLoading = true; render();
+      api('formListMhc', { token: S.session.token, q: L.q, filter: L.filter || 'all', limit: 50, offset: L.rows.length }, 60000)
+        .then(function (r) { L.rows = L.rows.concat(r.rows); L.hasMore = !!r.hasMore; L.moreLoading = false; render(); })
+        .catch(function (e) { L.moreLoading = false; toast(e.message, 'err'); render(); });
+    } }, L.moreLoading ? 'Memuat…' : 'Muat 50 lagi') : null;
+    return h('div', null, head, body, more);
   }
 
   /* ================= detail ================= */
