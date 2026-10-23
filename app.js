@@ -450,7 +450,7 @@
     if (i === 0) {
       if (!d.values.CUSTOMER) e.push('Customer'); if (!d.values.SN) e.push('Serial Number'); if (!d.values.DATE) e.push('Date');
       if (S.boot.branches.length > 1 && !d.branch) e.push('Branch');
-      if (d.values.PSSR && !d.values.PSSR_ATTEND) e.push('PSSR ikut ke lokasi?');
+      if (inspRole() !== 'PSSR' && d.values.PSSR && !d.values.PSSR_ATTEND) e.push('PSSR ikut ke lokasi?');
     } else if (i === 1) {
       M.groups.forEach(function (g) { g.items.forEach(function (it) {
         var x = d.checklist[it.col];
@@ -463,7 +463,7 @@
     } else if (i === 4) {
       M.photos.forEach(function (p) { if (p.required && d.photoSlots.indexOf(p.slot) < 0) e.push('Foto ' + p.label); });
     } else if (i === 5) {
-      if (!d.hasTsig) e.push('Tanda tangan mekanik');
+      if (!d.hasTsig) e.push('Tanda tangan Inspector');
     }
     return e;
   }
@@ -542,7 +542,7 @@
       h('div', { class: 'card' }, h('h2', null, '1 · Data Unit'), scPick, callNote, popPick),
       h('div', { class: 'card grid2' },
         field('Date', 'DATE', { type: 'date', required: true, half: true }), branchField,
-        field('Call ID', 'CALL_ID', { half: true, ph: 'Dari SAP' }), field('Hours Meter', 'HM', { num: true, half: true, ph: '0' }),
+        field('Call ID', 'CALL_ID', { half: true, ph: inspRole() === 'PSSR' ? 'Boleh kosong — dipilih SL' : 'Dari SAP' }), field('Hours Meter', 'HM', { num: true, half: true, ph: '0' }),
         field('Customer', 'CUSTOMER', { required: true }), field('Location', 'LOCATION'),
         field('Contact Person', 'CONTACT', { half: true }), field('Phone', 'PHONE', { half: true, tel: true }),
         field('Brand', 'BRAND', { half: true }), field('Model', 'MODEL', { half: true }),
@@ -562,23 +562,24 @@
     } }, h('option', { value: '' }, ph), opts.map(function (p) { return h('option', { value: p.name, selected: p.name === cur }, p.name + (p.nik ? ' · ' + p.nik : '') + (p.own === false ? ' · cabang ' + p.branch : '')); }));
     return h('div', { class: 'field' }, h('label', { class: 'lbl', for: sel.id }, label), sel);
   }
+  function inspRole() { var R = S.session.user.roles || []; return R.indexOf('MEKANIK') >= 0 ? 'Mekanik' : R.indexOf('PSSR') >= 0 ? 'PSSR' : 'Mekanik'; }
   function wizTeam() {
-    var d = S.wiz.d, u = S.session.user, M = mhc(), v = d.values;
+    var d = S.wiz.d, u = S.session.user, M = mhc(), v = d.values, asPssr = inspRole() === 'PSSR';
     var mech = (M.mechanics || []).filter(function (p) { return p.name !== u.name; }), pssr = M.pssr || [];
     var pssrField = pssr.length || v.PSSR ? personSelect('PSSR penanggung jawab customer', 'PSSR', pssr, [], '— Tidak ada / belum ditentukan —')
       : field('PSSR penanggung jawab customer', 'PSSR');
     return h('div', { class: 'card' }, h('h2', null, 'Tim Pemeriksa'),
       h('div', { class: 'grid2' },
-        h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Mekanik 1'), h('div', { class: 'ro' }, u.name), h('div', { class: 'muted small' }, 'Penanggung jawab (Anda)')),
+        h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Inspector'), h('div', { class: 'ro' }, u.name), h('div', { class: 'muted small' }, 'Penanggung jawab (Anda) · ' + inspRole())),
         field('NIK', 'NIK', { half: true })),
       mech.length ? [
         personSelect('Mekanik 2 (pendamping)', 'TECH2', mech, [v.TECH3], '— Tidak ada —'),
         v.TECH2 ? personSelect('Mekanik 3 (cadangan)', 'TECH3', mech, [v.TECH2], '— Tidak ada —') : null
       ] : h('p', { class: 'hint' }, 'Daftar mekanik pendamping diambil dari tab Users (Form Role MEKANIK, semua cabang).'),
-      pssrField,
+      asPssr ? h('p', { class: 'hint' }, 'Anda sebagai PSSR otomatis tercatat sebagai PSSR yang meng-follow up quotation MHC ini.') : [pssrField,
       v.PSSR ? h('div', { 'data-missing': v.PSSR_ATTEND ? null : '1' }, h('label', { class: 'lbl' }, 'PSSR ikut ke lokasi?', h('span', { class: 'req' }, ' *')),
         segmented(['Ya', 'Tidak'], v.PSSR_ATTEND, function (x) { d.values.PSSR_ATTEND = x; saveDraft(); })) : null,
-      h('p', { class: 'hint' }, 'PSSR tetap dipilih walaupun tidak ikut, karena PSSR inilah yang meng-follow up quotation.'));
+      h('p', { class: 'hint' }, 'PSSR tetap dipilih walaupun tidak ikut, karena PSSR inilah yang meng-follow up quotation.')]);
   }
   function wizChecklist() {
     var d = S.wiz.d, M = mhc(), total = 0, filled = 0, bad = 0;
@@ -757,7 +758,7 @@
         kvRow('Mekanik', [S.session.user.name, v.TECH2, v.TECH3].filter(Boolean).join(', ')), kvRow('PSSR', v.PSSR ? v.PSSR + (v.PSSR_ATTEND === 'Ya' ? ' (ikut)' : ' (tidak ikut)') : ''),
         kvRow('Checklist', cnt.GOOD + ' GOOD · ' + cnt.BAD + ' BAD · ' + cnt['N/A'] + ' N/A'), kvRow('Status', v.STATUS),
         kvRow('Parts', d.parts.length ? d.parts.length + ' part' : 'Tidak ada'), kvRow('Foto', d.photoSlots.length + ' foto')),
-      h('div', { class: 'card', 'data-missing': d.hasTsig ? null : '1' }, h('h2', null, 'Tanda tangan Mekanik', h('span', { class: 'req' }, ' *')),
+      h('div', { class: 'card', 'data-missing': d.hasTsig ? null : '1' }, h('h2', null, 'Tanda tangan Inspector', h('span', { class: 'req' }, ' *')),
         h('p', { class: 'muted small' }, 'Diperiksa oleh: ' + [S.session.user.name, v.TECH2, v.TECH3].filter(Boolean).join(', ')), signaturePad('tsig')),
       h('div', { class: 'card' }, h('h2', null, 'Customer / Operator'), field('Nama Customer PIC', 'CUST_PIC'),
         h('label', { class: 'lbl' }, 'Tanda tangan customer'), signaturePad('sig')),
@@ -832,13 +833,13 @@
             h('td', null, h('b', null, r.mhcNo || 'Data lama')), h('td', null, fmtDate(r.date)), h('td', null, r.customer),
             h('td', null, [r.brand, r.model].filter(Boolean).join(' '), h('div', { class: 'muted small' }, r.sn)), h('td', null, r.tech),
             h('td', null, r.status ? chip(r.status, machineTone(r.status)) : null, r.bad ? h('div', { class: 'small bad-t' }, r.bad + ' BAD') : null),
-            h('td', null, chip(r.mhcStatus), r.needReason ? chip('Lewat ' + r.lateDays + ' hari', 'bad') : null, r.callCount > 1 ? chip('Call ID ' + r.callId + ' · ' + r.callCount + ' MHC', 'info') : null), h('td', { class: 'small' }, r.parts), h('td', null, sideChips(r)), h('td', { class: 'num' }, fmtRp(r.totalQ)));
+            h('td', null, chip(r.mhcStatus), r.needReason ? chip('Lewat ' + r.lateDays + ' hari', 'bad') : null, r.callCount > 1 ? chip('Call ID ' + r.callId + ' · ' + r.callCount + ' MHC', 'info') : null, !r.callId && !r.isOld && !r.approved ? chip('Call ID belum ada', 'wait') : null), h('td', { class: 'small' }, r.parts), h('td', null, sideChips(r)), h('td', { class: 'num' }, fmtRp(r.totalQ)));
         }))));
     } else body = L.rows.map(function (r) {
       return h('button', { class: 'card item', onclick: function () { openDetail(r); } },
         h('div', { class: 'item-top' }, h('b', null, r.customer || '(tanpa customer)'), h('span', { class: 'muted' }, fmtDate(r.date))),
         h('div', { class: 'muted small' }, [r.mhcNo || 'Data lama', [r.brand, r.model].filter(Boolean).join(' '), r.sn && 'SN ' + r.sn, r.tech].filter(Boolean).join(' · ')),
-        h('div', { class: 'chips' }, chip(r.mhcStatus), r.needReason ? chip('Lewat ' + r.lateDays + ' hari', 'bad') : null, r.callCount > 1 ? chip('Call ID sama · ' + r.callCount + ' MHC', 'info') : null, r.status ? chip(r.status, machineTone(r.status)) : null, r.bad ? chip(r.bad + ' BAD', 'bad') : null, sideChips(r)),
+        h('div', { class: 'chips' }, chip(r.mhcStatus), r.needReason ? chip('Lewat ' + r.lateDays + ' hari', 'bad') : null, r.callCount > 1 ? chip('Call ID sama · ' + r.callCount + ' MHC', 'info') : null, !r.callId && !r.isOld && !r.approved ? chip('Call ID belum ada', 'wait') : null, r.status ? chip(r.status, machineTone(r.status)) : null, r.bad ? chip(r.bad + ' BAD', 'bad') : null, sideChips(r)),
         r.parts ? h('div', { class: 'small muted', style: 'margin-top:6px' }, 'Parts: ' + r.parts) : null);
     });
     var more = L.rows && L.rows.length && L.hasMore ? h('button', { class: 'btn block', style: 'margin-bottom:12px', disabled: !!L.moreLoading, onclick: function () {
@@ -1302,7 +1303,26 @@
   function slApproveCard(D, r, v) {
     var F = mhc().f, pend = (String(v[F.PARTS_REC] || '').match(/(\d+) belum ditemukan/) || [0, 0])[1];
     var pad = sigCanvas({ get: function () { return D.slSigUrl || null; }, save: function (b) { D.slSig = b; if (D.slSigUrl) URL.revokeObjectURL(D.slSigUrl); D.slSigUrl = URL.createObjectURL(b); }, clear: function () { D.slSig = null; D.slSigUrl = null; } });
-    var btn = h('button', { type: 'button', class: 'btn primary block', disabled: !!Number(pend), onclick: function () {
+    var cid = String(v[F.CALL_ID] || '').trim();
+    var setCid = function (x) {
+      if (!online()) return toast('Butuh koneksi internet', 'warn');
+      api('formSetCallId', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, callId: x }).then(function (res) { v[F.CALL_ID] = res.callId; D.sameCall = res.sameCall || []; D.cidEdit = false; toast('Call ID ' + res.callId + ' disimpan', 'ok'); render(); })
+        .catch(function (e) { toast(e.message, 'err'); });
+    };
+    var cidBox;
+    if (cid && !D.cidEdit) cidBox = h('div', { class: 'kv' }, h('span', null, 'Call ID'), h('b', null, cid, ' ', h('button', { type: 'button', class: 'linkbtn', onclick: function () { D.cidEdit = true; render(); } }, 'ganti')));
+    else {
+      var cpick = picker('Pilih Call ID (Service Call SAP)', S.boot.serviceCalls || [], function (x) { return x.join(' '); },
+        function (x) { return [h('div', { class: 'pick-main' }, h('b', null, x[0]), ' · ', x[1] || '-'), h('div', { class: 'pick-sub' }, [x[2] && 'SN ' + x[2], x[3], x[5], x[6]].filter(Boolean).join(' — '))]; },
+        function (x) { setCid(x[0]); }, 'Ketik Call ID / customer / SN…');
+      var man = h('input', { class: 'inp sm', id: 'sl-cid', placeholder: 'Call ID baru (belum ada di daftar)' });
+      cidBox = h('div', { class: 'cid-box' + (cid ? '' : ' missing') },
+        cid ? null : h('div', { class: 'banner warn' }, 'Call ID belum ada (mis. MHC dari kunjungan PSSR). Pilih Service Call yang sesuai — wajib sebelum disetujui.'),
+        cpick, h('div', { class: 'jds' }, man, h('button', { type: 'button', class: 'btn small', onclick: function () { if (!man.value.trim()) return toast('Isi Call ID', 'warn'); setCid(man.value.trim()); } }, 'Simpan'),
+          cid ? h('button', { type: 'button', class: 'linkbtn', onclick: function () { D.cidEdit = false; render(); } }, 'batal') : null),
+        h('p', { class: 'hint' }, 'Daftar Service Call diperbarui dari tab Service Call. Service Call yang baru dibuat di SAP bisa diketik manual.'));
+    }
+    var btn = h('button', { type: 'button', class: 'btn primary block', disabled: !!Number(pend) || !cid, onclick: function () {
       if (!D.slSig) return toast('Tanda tangani dulu di kotak di atas', 'warn');
       if (!online()) return toast('Butuh koneksi internet', 'warn');
       btn.disabled = true; btn.textContent = 'Menyimpan & membuat PDF…';
@@ -1316,6 +1336,7 @@
     return h('div', { class: 'card review-card' }, h('h2', null, 'Review Service Leader'),
       h('p', { class: 'muted small' }, 'Periksa temuan & parts rekomendasi (tambahkan parts bila perlu, mis. untuk overhaul), lalu tanda tangani. Setelah disetujui, PDF report bisa dicetak dan MHC masuk ke Admin PS untuk dibuatkan quotation.'),
       Number(pend) ? h('div', { class: 'banner warn' }, pend + ' part belum ditemukan — isi JDS Parts Number atau hapus part-nya dulu.') : null,
+      cidBox,
       h('label', { class: 'lbl' }, 'Tanda tangan Service Leader'), pad, btn);
   }
   function viewDetail() {
@@ -1334,7 +1355,8 @@
       h('div', { class: 'chips', style: 'margin:-4px 0 8px' }, h('span', { class: 'chip' }, r.mhcNo || 'Data lama'), chip(g('MHC_STATUS')), g('STATUS') ? chip(g('STATUS'), machineTone(g('STATUS'))) : null),
       kvRow('Tanggal', fmtDate(g('DATE'))), kvRow('Unit', [g('BRAND'), g('MODEL'), g('SN') && 'SN ' + g('SN')].filter(Boolean).join(' · ')),
       kvRow('Engine', [g('ENG_MODEL'), g('ENG_NO')].filter(Boolean).join(' / ')), kvRow('Hours Meter', fmtNum(g('HM'))), kvRow('Location', g('LOCATION')),
-      kvRow('Contact', [g('CONTACT'), g('PHONE')].filter(Boolean).join(' · ')), kvRow('Call ID', g('CALL_ID')), kvRow('Mekanik', [g('TECH'), g('TECH2'), g('TECH3')].filter(function (x) { return String(x || '').trim(); }).join(', ')),
+      kvRow('Contact', [g('CONTACT'), g('PHONE')].filter(Boolean).join(' · ')), kvRow('Call ID', g('CALL_ID') || (r.isOld ? '' : 'Belum ada — dipilih Service Leader')),
+      kvRow('Inspector', g('TECH') ? g('TECH') + (g('INSPECTOR_ROLE') === 'PSSR' ? ' (PSSR)' : '') : ''), kvRow('Mekanik pendamping', [g('TECH2'), g('TECH3')].filter(function (x) { return String(x || '').trim(); }).join(', ')),
       kvRow('PSSR', g('PSSR') ? g('PSSR') + (g('PSSR_ATTEND') === 'Ya' ? ' (ikut ke lokasi)' : g('PSSR_ATTEND') === 'Tidak' ? ' (tidak ikut)' : '') : ''),
       kvRow('Status terakhir', [g('STATUS_DATE') && fmtDate(g('STATUS_DATE')), g('STATUS_BY')].filter(Boolean).join(' · ')),
       can('marInput') && !r.isOld && [g('TECH'), g('TECH2'), g('TECH3')].indexOf(S.session.user.name) >= 0 ? h('div', { class: 'row-btns' }, h('button', { class: 'btn small', onclick: function () {
