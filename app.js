@@ -139,9 +139,48 @@
     }).catch(function (e) { if (e.auth) return markExpired(); if (manual || !had) toast(e.message, 'err'); if (!had) render(); });
   }
   function setCounts(c) {
-    S.counts = Object.assign({}, S.counts || {}, c || {});
+    var prev = S.counts || {};
+    S.counts = Object.assign({}, prev, c || {});
     if (S.session) store.set(KEY.counts(S.session), S.counts);
+    notifyNew(prev, S.counts);
     if (S.view === 'home' || S.view === 'list') render();
+  }
+  /* ---------- Notifikasi pekerjaan baru (angka kotak naik) + badge ikon aplikasi ---------- */
+  function watchKeys() {
+    var w = [];
+    if (can('slReview')) w.push(['review', 'MHC menunggu review & tanda tangan Anda', 'review']);
+    else if (can('partsJds')) w.push(['jds', 'part perlu dicari di JDS', 'jds']);
+    if (can('quoteCreate')) w.push(['needquote', 'MHC sudah disetujui SL — perlu dibuatkan quotation', 'needquote']);
+    if (can('marReview')) w.push(['marPending', 'hari MAR mekanik menunggu review', null]);
+    return w;
+  }
+  function notifyNew(prev, cur) {
+    if (!S.session) return;
+    var W = watchKeys(), total = 0, news = [];
+    W.forEach(function (w) {
+      var a = Number(prev[w[0]]), b = Number(cur[w[0]]) || 0; total += b;
+      if (!isNaN(a) && w[0] in prev && b > a) news.push({ n: b - a, text: w[1], filter: w[2] });
+    });
+    try { if (navigator.setAppBadge) { if (total) navigator.setAppBadge(total); else navigator.clearAppBadge(); } } catch (e) { }
+    if (!news.length) return;
+    var msg = news.map(function (x) { return x.n + ' ' + x.text; }).join(' · ');
+    if (!document.hidden) toast('🔔 ' + msg, 'ok');
+    if (document.hidden && window.Notification && Notification.permission === 'granted' && navigator.serviceWorker) {
+      navigator.serviceWorker.ready.then(function (reg) {
+        reg.showNotification('After Sales Input', { body: msg, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'asi-counts', renotify: true, data: { filter: news[0].filter } });
+      }).catch(function () { });
+    }
+  }
+  var lastPoll = Date.now();
+  function pollCounts(force) {
+    if (!S.session || S.session.expired || !online() || !watchKeys().length) return;
+    if (!force && Date.now() - lastPoll < (document.hidden ? 170000 : 55000)) return;
+    lastPoll = Date.now(); loadCounts();
+  }
+  setInterval(function () { pollCounts(false); }, 15000);
+  function askNotify() {
+    if (!window.Notification) return toast('Browser ini tidak mendukung notifikasi', 'warn');
+    Notification.requestPermission().then(function (p) { store.set('asi.notifyAsked', 1); toast(p === 'granted' ? 'Notifikasi aktif di perangkat ini' : 'Notifikasi tidak diizinkan', p === 'granted' ? 'ok' : 'warn'); render(); });
   }
   function loadCounts() {
     if (!S.session || !online()) return;
@@ -335,6 +374,10 @@
     var soon = NEXT_MENUS.filter(function (m) { return allowed(m[0], m[3]); });
     return h('div', null,
       h('h2', { class: 'page-t' }, 'Halo, ' + greetName(S.session.user.name)),
+      watchKeys().length && window.Notification && Notification.permission === 'default' && !store.get('asi.notifyAsked', 0) ? h('div', { class: 'banner info' },
+        h('span', null, '🔔 Aktifkan notifikasi supaya tahu saat ada MHC baru yang perlu Anda proses.'),
+        h('div', { class: 'row-btns' }, h('button', { class: 'btn small primary', onclick: askNotify }, 'Aktifkan'),
+          h('button', { class: 'btn small ghost', onclick: function () { store.set('asi.notifyAsked', 1); render(); } }, 'Nanti'))) : null,
       d && can('mhcInput') ? h('div', { class: 'banner info' }, h('span', null, 'Ada draft MHC yang belum selesai' + (d.values && d.values.CUSTOMER ? ' (' + d.values.CUSTOMER + ')' : '') + '.'),
         h('button', { class: 'btn small', onclick: function () { startWizard(); } }, 'Lanjutkan')) : null,
       h('div', { class: 'tiles' },
@@ -343,7 +386,7 @@
           : can('partsJds') ? tile('⌕', 'Cari Part di JDS', 'Part yang tidak ada di Stock On Hand', inbox('jds'), '', C.jds) : null,
         can('quoteCreate|quoteStatus') ? (isPssrOnly() ? (C.mylate ? tile('⏰', 'Lewat ' + (mhc().submitDays || 3) + ' hari', 'Quotation belum dikirim ke customer — isi alasannya', inbox('mylate'), 'late', C.mylate) : null)
           : (C.late ? tile('⏰', 'Lewat ' + (mhc().submitDays || 3) + ' hari', 'Quotation belum dikirim ke customer — isi alasannya', inbox('late'), 'late', C.late) : null)) : null,
-        can('quoteCreate') ? tile('Rp', 'Perlu Quotation', 'Buat quotation di SAP, isi nomornya di sini', inbox('needquote'), '', C.needquote) : null,
+        can('quoteCreate') ? tile('Rp', 'Perlu Quotation', 'MHC sudah disetujui SL · upload quotation SAP (PDF), nomor & nilai terisi otomatis', inbox('needquote'), C.needquote ? 'accent' : '', C.needquote) : null,
         can('quoteStatus') ? (isPssrOnly() ? tile('⇄', 'Quotation saya', 'Customer yang Anda pegang: update Negosiasi / PO / Invoice / Lose', inbox('myopen'), '', C.myopen)
           : tile('⇄', 'Quotation Berjalan', 'Update Negosiasi / Approved (PO) / Invoice / Lose', inbox('open'), '', C.open)) : null,
         invoiceOnly() ? tile('☎', 'MHC Selesai (Invoice)', 'Untuk survei kepuasan pelanggan · kontak customer & PDF', inbox('invoice'), '', C.invoice)
@@ -414,7 +457,7 @@
     } else if (i === 2) {
       if (!d.values.STATUS) e.push('Machine Status'); if (!String(d.values.DETAIL || '').trim()) e.push('Detail Problem'); if (!String(d.values.ACTION || '').trim()) e.push('Action');
     } else if (i === 3) {
-      d.parts.forEach(function (p, k) { if (!String(p.partNo || '').trim()) e.push('Part ' + (k + 1) + ': Part Number'); if (!(Number(p.qty) > 0)) e.push('Part ' + (k + 1) + ': Qty'); });
+      d.parts.forEach(function (p, k) { if (!String(p.partNo || '').trim()) e.push('Part ' + (k + 1) + ': Part Number'); if (!(Number(p.qty) > 0)) e.push('Part ' + (k + 1) + ': Qty'); if (!p.cat) e.push('Part ' + (k + 1) + ': Kategori'); });
     } else if (i === 4) {
       M.photos.forEach(function (p) { if (p.required && d.photoSlots.indexOf(p.slot) < 0) e.push('Foto ' + p.label); });
     } else if (i === 5) {
@@ -614,11 +657,12 @@
               p.stockOther ? h('span', { class: 'muted' }, ' · ' + p.stockOther) : null))
             : h('div', { class: 'part-main' }, h('div', { class: 'small warn-text' }, 'Manual — dicek ke Stock On Hand saat dikirim, jika tidak ada dicari di JDS'), pn, desc),
           h('label', { class: 'qty-l' }, 'Qty', qty),
-          h('button', { type: 'button', class: 'icon-btn danger', title: 'Hapus', onclick: function () { d.parts.splice(k, 1); saveDraft(); render(); } }, '✕')));
+          h('button', { type: 'button', class: 'icon-btn danger', title: 'Hapus', onclick: function () { d.parts.splice(k, 1); saveDraft(); render(); } }, '✕')),
+        h('div', { class: 'part-cat', 'data-missing': p.cat ? null : '1' }, catSelect(p.cat || '', function (c) { p.cat = c; saveDraft(); })));
     });
     return h('div', null,
       h('div', { class: 'card' }, h('h2', null, '4 · Parts Rekomendasi'),
-        need ? h('p', { class: 'muted small' }, 'Ada temuan BAD atau status unit ' + (d.values.STATUS || '') + '. Pilih part yang perlu diganti dari Stock On Hand.')
+        need ? h('p', { class: 'muted small' }, 'Ada temuan BAD atau status unit ' + (d.values.STATUS || '') + '. Pilih part yang perlu diganti dari Stock On Hand, lalu pilih kategorinya.')
           : h('div', { class: 'banner ok' }, 'Tidak ada temuan — parts rekomendasi boleh dikosongkan.'),
         h('div', { class: 'picker' }, h('label', { class: 'lbl' }, 'Cari di Stock On Hand'), q, hits),
         h('button', { type: 'button', class: 'btn small', onclick: function () { d.parts.push({ partNo: W.partQ || '', desc: '', qty: 1, found: false }); W.partHits = null; saveDraft(); render(); } }, '+ Tambah part manual')),
@@ -731,7 +775,7 @@
       id: id, kind: 'mhc', company: S.session.company, username: S.session.user.username, createdAt: Date.now(), status: 'pending',
       photoSlots: d.photoSlots.slice().sort(function (a, b) { return a - b; }), hasSig: !!d.hasSig, hasTsig: !!d.hasTsig, uploaded: {},
       payload: { values: v, checklist: checklist, captions: d.captions, branch: d.branch,
-                 parts: d.parts.map(function (p) { return { partNo: p.partNo, desc: p.desc, qty: Number(p.qty) || 1 }; }) },
+                 parts: d.parts.map(function (p) { return { partNo: p.partNo, desc: p.desc, qty: Number(p.qty) || 1, cat: p.cat || '' }; }) },
       marPrefill: { DATE: v.DATE, CUSTOMER: v.CUSTOMER, BRAND: v.BRAND, MODEL: v.MODEL, SN: v.SN, LOCATION: v.LOCATION, CALL_ID: v.CALL_ID, DESC: 'Machine Health Check' },
       summary: { title: v.CUSTOMER, sub: [fmtDate(v.DATE), v.MODEL, v.SN && 'SN ' + v.SN, v.STATUS, d.parts.length ? d.parts.length + ' part' : ''].filter(Boolean).join(' · ') }
     };
@@ -813,9 +857,9 @@
       if (S.view === 'detail') render();
     }).catch(function (e) { S.detail.loading = false; toast(e.message, 'err'); if (S.view === 'detail') render(); });
   }
-  function downloadPdf(r, regen) {
-    toast(regen ? 'Membuat ulang PDF…' : 'Mengunduh PDF…');
-    api('formGetPdf', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, regenerate: !!regen }, 120000).then(function (x) {
+  function downloadPdf(r, regen, kind) {
+    toast(regen ? 'Membuat ulang PDF…' : kind === 'quote' ? 'Mengunduh PDF quotation…' : 'Mengunduh PDF…');
+    api('formGetPdf', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, regenerate: !!regen, kind: kind || '' }, 120000).then(function (x) {
       var bin = atob(x.data), arr = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
       var url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
@@ -874,17 +918,306 @@
     var sap = [['Item No.', 'Quantity']].concat(parts.map(function (p) { return [p.found === 'Tidak' && p.jdsNo ? p.jdsNo : p.partNo, num(p.qty)]; }));
     var detail = [['MHC No', r.mhcNo], ['Customer', g('CUSTOMER')], ['Unit', [g('BRAND'), g('MODEL'), g('SN') && 'SN ' + g('SN')].filter(Boolean).join(' · ')],
       ['Tanggal MHC', fmtDate(g('DATE'))], ['Cabang', g('BRANCH')], [],
-      ['No', 'Part Number', 'Deskripsi', 'Qty', 'Stock Cabang', 'Stock Cabang Lain', 'Ada di Stock On Hand', 'JDS Part Number', 'Catatan JDS', 'Direkomendasikan oleh']]
-      .concat(parts.map(function (p, i) { return [i + 1, p.partNo, p.desc, num(p.qty), num(p.stockBranch), p.stockOther, p.found, p.jdsNo, p.jdsNote, p.by]; }));
-    var blob = makeXlsx([{ name: 'SAP Upload', rows: sap, widths: [22, 10] }, { name: 'Parts Rekomendasi', rows: detail, widths: [12, 20, 34, 6, 12, 22, 18, 20, 26, 24] }]);
+      ['No', 'Part Number', 'Deskripsi', 'Kategori', 'Qty', 'Stock Cabang', 'Stock Cabang Lain', 'Ada di Stock On Hand', 'JDS Part Number', 'Catatan JDS', 'Direkomendasikan oleh']]
+      .concat(parts.map(function (p, i) { return [i + 1, p.partNo, p.desc, p.cat || '', num(p.qty), num(p.stockBranch), p.stockOther, p.found, p.jdsNo, p.jdsNote, p.by]; }));
+    var blob = makeXlsx([{ name: 'SAP Upload', rows: sap, widths: [22, 10] }, { name: 'Parts Rekomendasi', rows: detail, widths: [12, 20, 34, 30, 6, 12, 22, 18, 20, 26, 24] }]);
     var url = URL.createObjectURL(blob), a = h('a', { href: url, download: (r.mhcNo || 'MHC') + '_Parts.xlsx' });
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
     toast('Excel parts diunduh', 'ok');
   }
 
+  /* ---------- Kategori parts rekomendasi ---------- */
+  var DEFAULT_CATS = ['Attachments', 'Bodyworks', 'Electrics Machine Cab & Engine', 'Controls, Machine Engine & Steering', 'Hydraulics', 'Transmission', 'Brakes', 'Engine Ancillaries'];
+  function partCats() { var M = mhc(); return (M && M.partCategories) || DEFAULT_CATS; }
+  function matchCat(x) {
+    var s = String(x == null ? '' : x).trim(), L = partCats();
+    if (!s) return '';
+    if (/^\d+$/.test(s)) return L[Number(s) - 1] || '';
+    var k = function (t) { return String(t).toUpperCase().replace(/[^A-Z]/g, ''); }, ks = k(s);
+    for (var i = 0; i < L.length; i++) if (k(L[i]) === ks) return L[i];
+    if (ks === 'HYDARAULICS' || ks === 'HYDRAULIC') return 'Hydraulics';
+    for (var j = 0; j < L.length; j++) if (ks.length >= 4 && k(L[j]).indexOf(ks) === 0) return L[j];
+    return '';
+  }
+  function catSelect(cur, onChange) {
+    return h('select', { class: 'inp sm cat-sel' + (cur ? '' : ' missing'), 'aria-label': 'Kategori part', onchange: function (e) { e.target.classList.toggle('missing', !e.target.value); onChange(e.target.value); } },
+      h('option', { value: '' }, '— Pilih kategori —'), partCats().map(function (c, i) { return h('option', { value: c, selected: c === cur }, (i + 1) + '. ' + c); }));
+  }
+  function saveBlob(blob, name) {
+    var url = URL.createObjectURL(blob), a = h('a', { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+  }
+
+  /* ---------- Baca Excel (.xlsx) / CSV tanpa library ---------- */
+  function readZip(buf) {
+    var u8 = new Uint8Array(buf), dv = new DataView(buf), eocd = -1, dec = new TextDecoder(), files = {};
+    for (var i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) throw new Error('File Excel tidak bisa dibaca');
+    var n = dv.getUint16(eocd + 10, true), p = dv.getUint32(eocd + 16, true);
+    for (var k = 0; k < n && p + 46 <= u8.length; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      var nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+      files[dec.decode(u8.subarray(p + 46, p + 46 + nl))] = { method: dv.getUint16(p + 10, true), csize: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true) };
+      p += 46 + nl + xl + cl;
+    }
+    return function (name) {
+      var f = files[name];
+      if (!f) return Promise.resolve(null);
+      var start = f.off + 30 + dv.getUint16(f.off + 26, true) + dv.getUint16(f.off + 28, true), data = u8.subarray(start, start + f.csize);
+      if (f.method === 0) return Promise.resolve(dec.decode(data));
+      if (f.method !== 8 || typeof DecompressionStream === 'undefined') return Promise.reject(new Error('Browser ini belum bisa membaca .xlsx — di Excel pilih Save As › CSV, lalu upload file CSV-nya'));
+      return new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer().then(function (b) { return dec.decode(b); });
+    };
+  }
+  function xlsxRows(buf) {
+    var get = readZip(buf), P = new DOMParser();
+    var xml = function (t) { return t ? P.parseFromString(t, 'application/xml') : null; };
+    var tags = function (el, tag) { return el ? Array.prototype.slice.call(el.getElementsByTagNameNS('*', tag)) : []; };
+    return Promise.all([get('xl/workbook.xml'), get('xl/_rels/workbook.xml.rels'), get('xl/sharedStrings.xml')]).then(function (t) {
+      var wb = xml(t[0]), rels = xml(t[1]);
+      var ss = tags(xml(t[2]), 'si').map(function (si) { return tags(si, 't').filter(function (x) { return x.parentNode.localName !== 'rPh'; }).map(function (x) { return x.textContent; }).join(''); });
+      var sheet = tags(wb, 'sheet')[0], target = 'worksheets/sheet1.xml';
+      if (sheet) {
+        var rid = sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || sheet.getAttribute('r:id');
+        tags(rels, 'Relationship').forEach(function (r) { if (r.getAttribute('Id') === rid) target = r.getAttribute('Target'); });
+      }
+      var path = target.charAt(0) === '/' ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '');
+      return get(path).then(function (st) {
+        if (!st) throw new Error('Sheet pertama tidak ditemukan di file Excel');
+        var rows = [];
+        tags(xml(st), 'row').forEach(function (rw) {
+          var ri = Number(rw.getAttribute('r')) - 1, out = [];
+          tags(rw, 'c').forEach(function (c, ci) {
+            var m = String(c.getAttribute('r') || '').match(/^([A-Z]+)/), col = ci;
+            if (m) { col = 0; for (var q = 0; q < m[1].length; q++) col = col * 26 + m[1].charCodeAt(q) - 64; col--; }
+            var ty = c.getAttribute('t'), v = tags(c, 'v')[0];
+            out[col] = ty === 's' ? (ss[Number(v && v.textContent)] || '') : ty === 'inlineStr' ? tags(c, 't').map(function (x) { return x.textContent; }).join('') : (v ? v.textContent : '');
+          });
+          for (var z = 0; z < out.length; z++) if (out[z] === undefined) out[z] = '';
+          rows[isNaN(ri) || ri < 0 ? rows.length : ri] = out;
+        });
+        for (var y = 0; y < rows.length; y++) if (!rows[y]) rows[y] = [];
+        return rows;
+      });
+    });
+  }
+  function csvRows(text) {
+    text = String(text).replace(/^﻿/, '');
+    var first = text.split(/\r?\n/)[0] || '';
+    var d = [';', '\t', ','].reduce(function (a, c) { return first.split(c).length > first.split(a).length ? c : a; }, ',');
+    var rows = [], row = [], cur = '', q = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === d) { row.push(cur); cur = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+      else cur += ch;
+    }
+    if (cur || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+  function readTableFile(file) {
+    return file.arrayBuffer().then(function (buf) {
+      var u8 = new Uint8Array(buf);
+      if (u8[0] === 0x50 && u8[1] === 0x4b) return xlsxRows(buf);
+      if (u8[0] === 0xD0 && u8[1] === 0xCF) throw new Error('Format .xls lama belum didukung — di Excel pilih Save As › Excel Workbook (.xlsx)');
+      return csvRows(new TextDecoder().decode(buf));
+    });
+  }
+  /** baris tabel → daftar part (kolom dicari dari judulnya: Part Number / Deskripsi / Qty / Kategori) */
+  function partsFromRows(rows) {
+    var norm = function (x) { return String(x == null ? '' : x).trim().toLowerCase().replace(/\s+/g, ' '); };
+    var isPn = function (s) { return !/jds/.test(s) && /part\s*(number|no\b|no\.|num|#|code)|^p\/?n$|^item\s*(no|code|number)|kode\s*part|no\.?\s*part|^part$/.test(s); };
+    var hr = -1, C = {};
+    for (var i = 0; i < Math.min(rows.length, 20) && hr < 0; i++) (rows[i] || []).some(function (x) { if (isPn(norm(x))) { hr = i; return true; } return false; });
+    if (hr >= 0) rows[hr].forEach(function (x, j) {
+      var s = norm(x);
+      if (C.pn === undefined && isPn(s)) C.pn = j;
+      else if (C.desc === undefined && /desc|deskripsi|nama|description|item name|uraian/.test(s)) C.desc = j;
+      else if (C.qty === undefined && /^(qty|q'ty|quantity|jumlah|jml)/.test(s)) C.qty = j;
+      else if (C.cat === undefined && /kategori|category|section/.test(s)) C.cat = j;
+    });
+    else C = { pn: 0, desc: 1, qty: 2, cat: 3 };
+    var out = [], unknown = 0, seen = {};
+    rows.slice(hr + 1).forEach(function (r) {
+      var pn = String(r[C.pn] == null ? '' : r[C.pn]).trim();
+      if (!pn) return;
+      var qty = C.qty !== undefined ? parseNum(r[C.qty]) : 1, raw = C.cat !== undefined ? String(r[C.cat] == null ? '' : r[C.cat]).trim() : '', cat = matchCat(raw);
+      if (raw && !cat) unknown++;
+      var key = pn.toUpperCase() + '|' + cat;
+      if (seen[key]) { seen[key].qty += qty > 0 ? qty : 1; return; }   // part sama di-gabung qty-nya
+      out.push(seen[key] = { partNo: pn, desc: C.desc !== undefined ? String(r[C.desc] == null ? '' : r[C.desc]).trim() : '', qty: qty > 0 ? qty : 1, cat: cat, fromFile: true });
+    });
+    return { parts: out, header: hr >= 0, unknownCat: unknown, hasCat: C.cat !== undefined };
+  }
+  function downloadPartsTemplate() {
+    var cats = partCats();
+    saveBlob(makeXlsx([{ name: 'Parts', rows: [['Part Number', 'Deskripsi', 'Qty', 'Kategori']], widths: [22, 36, 8, 36] },
+      { name: 'Daftar Kategori', rows: [['No', 'Kategori']].concat(cats.map(function (c, i) { return [i + 1, c]; }),
+        [[], ['', 'Kolom Kategori boleh diisi nama kategori atau nomornya (1-' + cats.length + ').'], ['', 'Baris yang Part Number-nya kosong dilewati. Part yang sama digabung qty-nya.']]), widths: [6, 70] }]),
+      'Template_Parts_Rekomendasi.xlsx');
+    toast('Template Excel diunduh', 'ok');
+  }
+
+  /* ---------- Baca PDF quotation SAP (pdf.js dimuat hanya saat dibutuhkan) ---------- */
+  var PDFJS_SRC = [['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'],
+                   ['https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js', 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js']];
+  var pdfJsP = null;
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (pdfJsP) return pdfJsP;
+    var tryOne = function (i) {
+      if (i >= PDFJS_SRC.length) return Promise.reject(new Error('Pembaca PDF tidak bisa dimuat — isi nomor & nilai manual'));
+      return new Promise(function (res, rej) {
+        var s = document.createElement('script'); s.src = PDFJS_SRC[i][0]; s.async = true;
+        s.onload = function () { if (window.pdfjsLib) res(); else rej(); }; s.onerror = rej; document.head.appendChild(s);
+      }).then(function () { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_SRC[i][1]; return window.pdfjsLib; }, function () { return tryOne(i + 1); });
+    };
+    return (pdfJsP = tryOne(0).catch(function (e) { pdfJsP = null; throw e; }));
+  }
+  /** teks PDF per baris (potongan teks dengan posisi y yang sama digabung, urut kiri → kanan) */
+  function pdfTextLines(buf) {
+    return loadPdfJs().then(function (lib) { return lib.getDocument({ data: new Uint8Array(buf) }).promise; }).then(function (doc) {
+      var pages = []; for (var i = 1; i <= Math.min(doc.numPages, 6); i++) pages.push(i);
+      return Promise.all(pages.map(function (n) { return doc.getPage(n).then(function (pg) { return pg.getTextContent(); }); }));
+    }).then(function (tcs) {
+      var lines = [];
+      tcs.forEach(function (tc) {
+        var rows = [];
+        tc.items.forEach(function (it) {
+          if (!it.str || !String(it.str).trim()) return;
+          var x = it.transform[4], y = it.transform[5], ht = Math.abs(it.transform[3]) || it.height || 8;
+          var row = null;
+          for (var k = 0; k < rows.length; k++) if (Math.abs(rows[k].y - y) <= Math.max(2, ht * 0.45)) { row = rows[k]; break; }
+          if (!row) rows.push(row = { y: y, items: [] });
+          row.items.push({ x: x, w: it.width || 0, s: String(it.str) });
+        });
+        rows.sort(function (a, b) { return b.y - a.y; }).forEach(function (r) {
+          r.items.sort(function (a, b) { return a.x - b.x; });
+          var txt = '', end = null;
+          r.items.forEach(function (it) { if (end !== null) txt += it.x - end > 6 ? '   ' : it.x - end > 1.2 ? ' ' : ''; txt += it.s; end = it.x + it.w; });
+          lines.push(txt.replace(/\s+$/, ''));
+        });
+      });
+      return lines;
+    });
+  }
+  var BULAN = { jan: 1, januari: 1, january: 1, feb: 2, februari: 2, february: 2, mar: 3, maret: 3, march: 3, apr: 4, april: 4, mei: 5, may: 5, jun: 6, juni: 6, june: 6,
+    jul: 7, juli: 7, july: 7, agu: 8, ags: 8, agt: 8, agustus: 8, aug: 8, august: 8, sep: 9, sept: 9, september: 9, okt: 10, oktober: 10, oct: 10, october: 10,
+    nov: 11, nopember: 11, november: 11, des: 12, desember: 12, dec: 12, december: 12 };
+  function toIsoDate(s) {
+    s = String(s || '').trim(); var m, y, a, b, mo;
+    if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) return m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]);
+    if ((m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/))) {
+      y = +m[3]; if (y < 100) y += 2000; a = +m[1]; b = +m[2];
+      if (a <= 12 && b > 12) { var t = a; a = b; b = t; }   // format bulan/tanggal
+      return b >= 1 && b <= 12 && a >= 1 && a <= 31 ? y + '-' + pad(b) + '-' + pad(a) : '';
+    }
+    if ((m = s.match(/^(\d{1,2})[\s\-\/.]+([A-Za-z]{3,9})\.?[\s\-\/.,]+(\d{4})$/))) { mo = BULAN[m[2].toLowerCase()]; return mo ? m[3] + '-' + pad(mo) + '-' + pad(+m[1]) : ''; }
+    if ((m = s.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/))) { mo = BULAN[m[1].toLowerCase()]; return mo ? m[3] + '-' + pad(mo) + '-' + pad(+m[2]) : ''; }
+    return '';
+  }
+  var DATE_TOK = '(\\d{1,2}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{2,4}|\\d{4}-\\d{2}-\\d{2}|\\d{1,2}[\\s\\-]+[A-Za-z]{3,9}\\.?[\\s\\-,]+\\d{4}|[A-Za-z]{3,9}\\.?\\s+\\d{1,2},?\\s+\\d{4})';
+  var AMT_RE = /-?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?(?![\d.,]*\d)|-?\d+[.,]\d{2}(?!\d)/g;
+  function amountsIn(line) {
+    var s = String(line).replace(new RegExp('\\b' + DATE_TOK.slice(1, -1).split('|')[0], 'g'), ' '), out = [], m;
+    AMT_RE.lastIndex = 0;
+    while ((m = AMT_RE.exec(s))) { var n = parseNum(m[0]); if (!isNaN(n)) out.push(n); }
+    return out;
+  }
+  var SVC_RE = /\b(jasa|service|servis|labou?r|man\s?power|man\s?hours?|ongkos|transport\w*|akomodasi|accomodation|accommodation|mobilisasi|demobilisasi|travel\w*|perjalanan|kunjungan|visit|upah|charge|fee)\b/i;
+  var SVC_CODE_RE = /(^|\s)SVC[-\/][\w\-\/]+/i;
+  var TOT_RE = /\b(sub\s?-?total|total|grand\s?total|amount\s+due|dpp|ppn|vat|tax|pajak|pph|discount|diskon|potongan|rounding|pembulatan|down\s?payment|uang\s?muka|terbilang)\b/i;
+  var SKIP_RE = /\b(npwp|telp|telepon|phone|fax|hp|rekening|account|a\/c|ac\s*:|swift|kode\s?pos)\b/i;
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
+  /** Ambil No. quotation, tanggal & nilai dari teks PDF quotation SAP.
+      Hasil: side 'P' (parts saja) / 'S' (jasa saja: kode SVC-…) / 'PS' (campur), nilai per sisi dalam 2 versi:
+      values.net = setelah diskon, sebelum PPN · values.total = termasuk PPN */
+  function parseQuoteText(lines, ctx) {
+    ctx = ctx || {};
+    var L = (lines || []).map(function (l) { return String(l == null ? '' : l).replace(/ /g, ' '); });
+    var res = { qno: '', date: '', side: '', sub: 0, disc: 0, net: 0, tax: 0, total: 0, items: [], notes: [], values: { net: { P: 0, S: 0 }, total: { P: 0, S: 0 } } };
+    var TOK = '([A-Z0-9][A-Z0-9\\/.\\-]*\\d[A-Z0-9\\/.\\-]*)';
+    var bad = function (t) { return !t || t.length < 3 || /^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}$/.test(t) || (ctx.mhcNo && t === ctx.mhcNo); };
+    var hasTitle = L.slice(0, 40).some(function (l) { return /quotation|penawaran|quote/i.test(l); });
+    var pats = [
+      new RegExp('(?:sales\\s*)?(?:quotation|penawaran|quoted?)\\s*(?:no\\.?|number|nomor|num\\.?|#)\\s*[:.]?\\s*' + TOK, 'i'),
+      new RegExp('(?:no\\.?|nomor)\\s*(?:quotation|penawaran|sq)\\s*[:.]?\\s*' + TOK, 'i'),
+      new RegExp('(?:doc(?:ument)?\\.?\\s*(?:no\\.?|number|num\\.?)|no\\.?\\s*dok(?:umen)?\\.?)\\s*[:.]?\\s*' + TOK, 'i')];
+    if (hasTitle) pats.push(new RegExp('(?:^|\\s{2,})(?:no|number|nomor)\\.?\\s*:\\s*' + TOK, 'i'));
+    var labelOnly = /(quotation|penawaran|quoted?)\s*(no\.?|number|nomor)\s*[:.]?\s*$|^(no\.?|nomor)\s*(quotation|penawaran)\s*[:.]?\s*$/i;
+    pats.some(function (re) {
+      return L.some(function (l, i) {
+        var m = l.match(re);
+        if (m && !bad(m[1])) { res.qno = m[1].replace(/[.\-\/]+$/, ''); return true; }
+        if (labelOnly.test(l.trim()) && L[i + 1]) { var m2 = L[i + 1].match(new RegExp('^\\s*[:.]?\\s*' + TOK, 'i')); if (m2 && !bad(m2[1])) { res.qno = m2[1]; return true; } }
+        return false;
+      });
+    });
+    // tanggal dokumen (bukan tanggal berlaku / kirim / jatuh tempo)
+    var dre = new RegExp('(quoted\\s*date|posting\\s*date|document\\s*date|doc\\.?\\s*date|quotation\\s*date|tanggal\\s*(?:dokumen|penawaran)?|tgl\\.?|date)\\s*[:.]?\\s*' + DATE_TOK, 'i');
+    L.some(function (l) {
+      var m = l.match(dre);
+      if (!m) return false;
+      var before = l.slice(0, m.index + m[1].length).toLowerCase();
+      if (/valid|berlaku|delivery|kirim|due|jatuh|expir|required|until|thru|s\.?d/.test(before.slice(-30))) return false;
+      var iso = toIsoDate(m[2]); if (iso) { res.date = iso; return true; } return false;
+    });
+    if (!res.date) L.slice(0, 30).some(function (l) { var m = l.match(new RegExp(DATE_TOK)); var iso = m && toIsoDate(m[1]); if (iso) { res.date = iso; return true; } return false; });
+    // baris item (antara judul tabel dan baris total) + baris ringkasan
+    var head = -1;
+    L.forEach(function (l, i) { if (head < 0 && /(desc|deskripsi|description|uraian|item|nama\s*barang)/i.test(l) && /(qty|quantity|jumlah|jml)/i.test(l) && /(price|harga|total|amount)/i.test(l)) head = i; });
+    var lab = { p: 0, s: 0 }, ended = false, sum = { P: 0, S: 0 };
+    var pnList = (ctx.partNos || []).map(function (x) { return String(x || '').toUpperCase().trim(); }).filter(function (x) { return x.length >= 3; });
+    L.forEach(function (l, i) {
+      if (SKIP_RE.test(l)) return;
+      var nums = amountsIn(l).filter(function (n) { return Math.abs(n) >= 100; });
+      if (!nums.length) return;
+      var v = nums[nums.length - 1], low = l.toLowerCase();
+      if (TOT_RE.test(l)) {
+        if (head >= 0 && i > head) ended = true;
+        var tax = /\b(ppn|vat|tax|pajak|pph)\b/.test(low);
+        if (/after\s*dis[ck]|setelah\s*(diskon|potongan)|net+\s*(total|amount)|total\s*after/.test(low)) { if (!res.net) res.net = v; }
+        else if (/sub\s?-?total|total\s+before|before\s+(discount|tax)|\bdpp\b|jumlah\s+harga/.test(low)) { if (!res.sub) res.sub = v; }
+        else if (/dis[ck]o(n|unt)|potongan/.test(low)) { if (!res.disc) res.disc = v; }
+        else if (!tax && /(spare\s?parts?|sparepart|suku\s?cadang|\bparts?\b|material)/.test(low)) { if (!lab.p) lab.p = v; }
+        else if (!tax && /\b(jasa|service|servis|labou?r)\b/.test(low)) { if (!lab.s) lab.s = v; }
+        else if (tax) { if (!res.tax) res.tax = v; }
+        else if (/grand\s?total|total\s+(amount|document|payment|quotation|penawaran)|amount\s+due|^\s*total\b|\s{2,}total\b/.test(low)) res.total = Math.max(res.total, v);
+        return;
+      }
+      if ((head >= 0 && (i <= head || ended)) || v < 1000) return;
+      var up = l.toUpperCase(), isPart = pnList.some(function (pn) { return up.indexOf(pn) >= 0; });
+      var side = SVC_CODE_RE.test(l) ? 'S' : !isPart && SVC_RE.test(l) ? 'S' : 'P';
+      sum[side] += v; res.items.push({ text: l.trim(), value: v, side: side });
+    });
+    if (lab.p || lab.s) { if (lab.p) sum.P = lab.p; if (lab.s) sum.S = lab.s; }
+    var itemsTot = sum.P + sum.S;
+    if (!res.sub) res.sub = itemsTot;
+    if (!itemsTot && (res.sub || res.total)) {   // rincian tidak terbaca: semua ke satu sisi
+      var k = ctx.hasParts === false ? 'S' : 'P'; sum[k] = res.sub || res.total; itemsTot = sum[k];
+      res.notes.push('Rincian baris tidak terbaca — seluruh nilai dimasukkan ke ' + (k === 'P' ? 'Parts' : 'Service') + '. Pindahkan bila perlu.');
+    }
+    if (!res.net) res.net = res.sub ? r2(res.sub - res.disc) : 0;
+    if (!res.total) res.total = r2(res.net + res.tax);
+    res.side = sum.P && sum.S ? 'PS' : sum.S ? 'S' : 'P';
+    var base = itemsTot || res.sub;
+    ['net', 'total'].forEach(function (mode) {
+      var tot = mode === 'net' ? res.net : res.total;
+      ['P', 'S'].forEach(function (s) { res.values[mode][s] = base ? r2(tot * sum[s] / base) : 0; });
+    });
+    if (res.side === 'PS' && res.disc) res.notes.push('Satu PDF berisi parts & jasa — diskon / PPN dibagi sebanding nilainya.');
+    if (itemsTot && res.sub && Math.abs(itemsTot - res.sub) > 1 && !lab.p && !lab.s) res.notes.push('Jumlah baris (' + fmtRp(itemsTot) + ') berbeda dengan Subtotal PDF (' + fmtRp(res.sub) + ') — mohon dicek.');
+    if (!res.qno) res.notes.push('Nomor quotation tidak ditemukan — isi manual.');
+    return res;
+  }
+  window.__asiTest = { parseQuote: parseQuoteText, pdfLines: pdfTextLines, poll: function () { pollCounts(true); } };   // untuk pengujian
+
   /* ---------- Service Leader: tambah parts & tanda tangan ---------- */
   function slAddParts(D, r, v, setParts) {
-    var A = D.add || (D.add = { q: '', hits: null, staged: [], manual: { partNo: '', desc: '', qty: 1 } }), F = mhc().f;
+    var A = D.add || (D.add = { q: '', hits: null, staged: [], manual: { partNo: '', desc: '', qty: 1 }, bulk: '' }), F = mhc().f;
+    var MAX = mhc().partsUploadMax || 300;
     var q = h('input', { class: 'inp', type: 'search', placeholder: 'Cari part number / nama part di Stock On Hand…', value: A.q, enterkeyhint: 'search' });
     var hits = h('div', { class: 'picklist' });
     var draw = function () {
@@ -893,7 +1226,7 @@
       if (!A.hits) return;
       if (!A.hits.length) return hits.appendChild(h('div', { class: 'pick-empty' }, 'Tidak ada di Stock On Hand — tambahkan manual di bawah.'));
       A.hits.forEach(function (it) {
-        hits.appendChild(h('button', { type: 'button', class: 'pick', onclick: function () { A.staged.push({ partNo: it.partNo, desc: it.desc, qty: 1, info: (it.stockBranch > 0 ? 'Stock cabang ' + it.stockBranch : 'Kosong di cabang') + (it.otherText ? ' · ' + it.otherText : '') }); A.hits = null; A.q = ''; render(); } },
+        hits.appendChild(h('button', { type: 'button', class: 'pick', onclick: function () { A.staged.push({ partNo: it.partNo, desc: it.desc, qty: 1, cat: '', info: (it.stockBranch > 0 ? 'Stock cabang ' + it.stockBranch : 'Kosong di cabang') + (it.otherText ? ' · ' + it.otherText : '') }); A.hits = null; A.q = ''; render(); } },
           h('div', { class: 'pick-main' }, h('b', null, it.partNo), ' · ', it.desc), h('div', { class: 'pick-sub' }, (it.stockBranch > 0 ? 'Stock cabang ' + it.stockBranch : 'Kosong di cabang') + (it.otherText ? ' — ada di ' + it.otherText : ''))));
       });
     };
@@ -906,24 +1239,60 @@
     draw();
     var mpn = h('input', { class: 'inp sm', placeholder: 'Part number', value: A.manual.partNo }), mds = h('input', { class: 'inp sm', placeholder: 'Nama / deskripsi part', value: A.manual.desc });
     mpn.addEventListener('input', function () { A.manual.partNo = mpn.value; }); mds.addEventListener('input', function () { A.manual.desc = mds.value; });
+    // upload dari Excel / CSV
+    var pickFile = function () {
+      var inp = h('input', { type: 'file', accept: '.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv', style: 'display:none' });
+      inp.addEventListener('change', function () {
+        var f = inp.files && inp.files[0]; inp.remove();
+        if (!f) return;
+        A.reading = true; render();
+        readTableFile(f).then(function (rows) {
+          var x = partsFromRows(rows); A.reading = false;
+          if (!x.parts.length) { render(); return toast('Tidak ada part terbaca. Pastikan ada kolom "Part Number" (lihat Template Excel).', 'err'); }
+          var room = MAX - A.staged.length, take = x.parts.slice(0, Math.max(0, room));
+          A.staged = A.staged.concat(take); A.fileName = f.name;
+          var noCat = take.filter(function (p) { return !p.cat; }).length;
+          render();
+          toast(take.length + ' part dibaca dari ' + f.name + (x.parts.length > take.length ? ' · ' + (x.parts.length - take.length) + ' dilewati (maks ' + MAX + ')' : '') +
+            (noCat ? ' · ' + noCat + ' belum ada kategori' : ''), noCat || x.parts.length > take.length ? 'warn' : 'ok');
+        }).catch(function (e) { A.reading = false; render(); toast(e.message, 'err'); });
+      });
+      document.body.appendChild(inp); inp.click();
+    };
+    var missing = A.staged.filter(function (p) { return !p.cat; }).length;
     var staged = A.staged.map(function (p, i) {
       var qty = h('input', { class: 'inp sm num qty', inputmode: 'numeric', value: p.qty });
       qty.addEventListener('input', function () { p.qty = parseNum(qty.value) || ''; });
       return h('div', { class: 'part' }, h('div', { class: 'part-top' }, h('span', { class: 'part-n' }, '+'),
-        h('div', { class: 'part-main' }, h('b', null, p.partNo), h('div', { class: 'muted small' }, p.desc), p.info ? h('div', { class: 'small muted' }, p.info) : h('div', { class: 'small warn-text' }, 'Manual — jika tidak ada di Stock On Hand, dicari di JDS')),
-        h('label', { class: 'qty-l' }, 'Qty', qty), h('button', { type: 'button', class: 'icon-btn danger', onclick: function () { A.staged.splice(i, 1); render(); } }, '✕')));
+        h('div', { class: 'part-main' }, h('b', null, p.partNo), h('div', { class: 'muted small' }, p.desc),
+          p.info ? h('div', { class: 'small muted' }, p.info) : h('div', { class: 'small muted' }, p.fromFile ? 'Dari file — stock dicek ke Stock On Hand saat disimpan' : 'Manual — jika tidak ada di Stock On Hand, dicari di JDS')),
+        h('label', { class: 'qty-l' }, 'Qty', qty), h('button', { type: 'button', class: 'icon-btn danger', onclick: function () { A.staged.splice(i, 1); render(); } }, '✕')),
+        h('div', { class: 'part-cat', 'data-missing': p.cat ? null : '1' }, catSelect(p.cat || '', function (c) { p.cat = c; var m = A.staged.filter(function (x) { return !x.cat; }).length; if (!m || !c) render(); })));
     });
+    var bulk = missing > 1 ? h('div', { class: 'banner warn col' }, h('span', null, missing + ' part belum ada kategori. Pilih kategori untuk semua yang kosong sekaligus:'),
+      catSelect('', function (c) { if (!c) return; A.staged.forEach(function (p) { if (!p.cat) p.cat = c; }); render(); })) : null;
     return h('div', { class: 'sl-add' }, h('h3', { class: 'sec-t' }, 'Tambah parts rekomendasi (Service Leader)'),
+      h('div', { class: 'upload-row' },
+        h('button', { type: 'button', class: 'btn small', disabled: !!A.reading, onclick: pickFile }, A.reading ? 'Membaca file…' : '⬆ Upload Excel'),
+        h('button', { type: 'button', class: 'btn small ghost', onclick: downloadPartsTemplate }, '⬇ Template Excel'),
+        h('span', { class: 'muted small' }, 'Kolom: Part Number, Deskripsi, Qty, Kategori')),
       h('div', { class: 'picker' }, q, hits),
       h('div', { class: 'jds' }, mpn, mds, h('button', { type: 'button', class: 'btn small', onclick: function () {
         if (!A.manual.partNo.trim()) return toast('Isi part number', 'warn');
-        A.staged.push({ partNo: A.manual.partNo.trim(), desc: A.manual.desc.trim(), qty: 1 }); A.manual = { partNo: '', desc: '', qty: 1 }; render();
+        A.staged.push({ partNo: A.manual.partNo.trim(), desc: A.manual.desc.trim(), qty: 1, cat: '' }); A.manual = { partNo: '', desc: '', qty: 1 }; render();
       } }, '+ Manual')),
-      staged,
-      A.staged.length ? h('button', { type: 'button', class: 'btn primary block', style: 'margin-top:10px', onclick: function () {
+      A.staged.length ? h('div', { class: 'card-head', style: 'margin-top:10px' }, h('b', null, A.staged.length + ' part akan ditambahkan' + (A.fileName ? ' (dari ' + A.fileName + ')' : '')),
+        h('button', { type: 'button', class: 'linkbtn danger', onclick: function () { if (A.staged.length > 3 && !confirm('Kosongkan ' + A.staged.length + ' part ini?')) return; A.staged = []; A.fileName = ''; render(); } }, 'Kosongkan')) : null,
+      bulk, staged,
+      A.staged.length ? h('button', { type: 'button', class: 'btn primary block', style: 'margin-top:10px', onclick: function (ev) {
         if (!online()) return toast('Butuh koneksi internet', 'warn');
-        api('formAddParts', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, parts: A.staged.map(function (p) { return { partNo: p.partNo, desc: p.desc, qty: Number(p.qty) || 1 }; }) })
-          .then(function (x) { D.add = null; setParts(x); toast(A.staged.length + ' part ditambahkan · status: ' + x.mhcStatus, 'ok'); }).catch(function (e) { toast(e.message, 'err'); });
+        var noCat = A.staged.filter(function (p) { return !p.cat; }).length;
+        if (noCat) { var el = document.querySelector('.sl-add .part-cat[data-missing="1"] select'); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); return toast(noCat + ' part belum dipilih kategorinya', 'warn'); }
+        var btn = ev.currentTarget; btn.disabled = true; btn.textContent = 'Menyimpan ' + A.staged.length + ' part…';
+        var n = A.staged.length;
+        api('formAddParts', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, parts: A.staged.map(function (p) { return { partNo: p.partNo, desc: p.desc, qty: Number(p.qty) || 1, cat: p.cat }; }) }, 120000)
+          .then(function (x) { D.add = null; setParts(x); toast(n + ' part ditambahkan · status: ' + x.mhcStatus, 'ok'); })
+          .catch(function (e) { btn.disabled = false; btn.textContent = 'Simpan ' + n + ' part'; toast(e.message, 'err'); });
       } }, 'Simpan ' + A.staged.length + ' part') : null);
   }
   function slApproveCard(D, r, v) {
@@ -937,7 +1306,7 @@
         return api('formUploadPhoto', { token: S.session.token, clientId: 'sl-' + r.mhcNo, slot: 'slsig', data: b64, mime: 'image/png', branch: v[F.BRANCH] });
       }).then(function (up) {
         return api('formApproveMhc', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, sigUrl: up.url }, 180000);
-      }).then(function (x) { toast('MHC disetujui · status: ' + x.mhcStatus + (x.pdf ? ' · PDF siap' : ''), 'ok'); loadCounts(); openDetail(r); })
+      }).then(function (x) { toast('MHC disetujui · status: ' + x.mhcStatus + (x.pdf ? ' · PDF siap' : '') + (x.notified ? ' · Admin diberi tahu lewat email' : ''), 'ok'); loadCounts(); openDetail(r); })
         .catch(function (e) { btn.disabled = false; btn.textContent = 'Setujui & tanda tangani'; toast(e.message, 'err'); });
     } }, 'Setujui & tanda tangani');
     return h('div', { class: 'card review-card' }, h('h2', null, 'Review Service Leader'),
@@ -968,8 +1337,13 @@
         openMar({ DATE: String(g('DATE') || '').slice(0, 10), CUSTOMER: g('CUSTOMER'), BRAND: g('BRAND'), MODEL: g('MODEL'), SN: g('SN'), LOCATION: g('LOCATION'), CALL_ID: g('CALL_ID'), MHC_NO: r.mhcNo, DESC: 'Machine Health Check' });
       } }, '◷ Buat MAR dari MHC ini')) : null,
       kvRow('Disetujui SL', g('SL_DATE') ? [g('SL_NAME'), fmtDate(g('SL_DATE'))].filter(Boolean).join(' · ') : ''),
+      kvRow('No. Quotation', quoteNos(g)), kvRow('Nilai Quotation', quoteValText(g)),
       r.isOld ? null : D.approved ? h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: function () { downloadPdf(r); } }, '⬇ Download PDF'),
-          invoiceOnly() ? null : h('button', { class: 'btn ghost small', onclick: function () { downloadPdf(r, true); } }, 'Buat ulang PDF'))
+          invoiceOnly() ? null : h('button', { class: 'btn ghost small', onclick: function () { downloadPdf(r, true); } }, 'Buat ulang PDF'),
+          can('quoteCreate') ? h('button', { class: 'btn small accent-btn', onclick: function () { pickQuotePdf(D, r, v); } }, quoteNos(g) ? '⬆ Upload / Ganti Quotation (PDF)' : '⬆ Upload Quotation (PDF)') : null,
+          /drive/.test(String(g('P_QPDF'))) ? h('button', { class: 'btn small', onclick: function () { downloadPdf(r, false, 'quoteP'); } }, String(g('P_QPDF')) === String(g('S_QPDF')) ? '⬇ Quotation PDF' : '⬇ Quotation Parts') : null,
+          /drive/.test(String(g('S_QPDF'))) && String(g('P_QPDF')) !== String(g('S_QPDF')) ? h('button', { class: 'btn small', onclick: function () { downloadPdf(r, false, 'quoteS'); } }, '⬇ Quotation Service') : null,
+          /drive/.test(String(g('Q_PDF'))) ? h('button', { class: 'btn small', onclick: function () { downloadPdf(r, false, 'quote'); } }, '⬇ Quotation PDF') : null)
         : can('slReview') ? h('div', { class: 'row-btns' }, h('button', { class: 'btn small', onclick: function () { downloadPdf(r); } }, 'Lihat draft PDF'), h('span', { class: 'muted small' }, 'PDF final dibuat setelah Anda menandatangani.'))
         : h('p', { class: 'hint' }, 'PDF report bisa dicetak setelah direview & ditandatangani Service Leader.'));
     var lt = D.late || {};
@@ -1000,7 +1374,11 @@
       return h('div', { class: 'part' + (p.found === 'Tidak' ? ' manual' : '') }, h('div', { class: 'part-top' }, h('span', { class: 'part-n' }, k + 1),
         h('div', { class: 'part-main' }, h('b', null, p.partNo), ' × ' + p.qty, h('div', { class: 'muted small' }, p.desc),
           p.found === 'Ya' ? h('div', { class: 'small' }, Number(p.stockBranch) > 0 ? h('span', { class: 'ok-text' }, 'Stock cabang ' + p.stockBranch) : h('span', { class: 'warn-text' }, 'Kosong di cabang'), p.stockOther ? h('span', { class: 'muted' }, ' · ' + p.stockOther) : null) : null,
-          p.by ? h('div', { class: 'small muted' }, 'Oleh: ' + p.by) : null, jdsBox), del));
+          p.by ? h('div', { class: 'small muted' }, 'Oleh: ' + p.by) : null, jdsBox), del),
+        can('slReview') && !r.isOld ? h('div', { class: 'part-cat', 'data-missing': p.cat ? null : '1' }, catSelect(p.cat || '', function (c) {
+          if (!online()) return toast('Butuh koneksi internet', 'warn');
+          api('formSetPartCat', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, partRow: p.row, cat: c }).then(function (x) { p.cat = x.cat; toast('Kategori ' + p.partNo + ' disimpan', 'ok'); }).catch(function (e) { toast(e.message, 'err'); });
+        })) : h('div', { class: 'part-cat' }, p.cat ? h('span', { class: 'chip cat' }, p.cat) : h('span', { class: 'muted small' }, 'Kategori belum diisi')));
     });
     var parts = (D.parts || []).length || slEdit ? h('div', { class: 'card' },
       h('div', { class: 'card-head' }, h('h2', null, 'Parts Rekomendasi (' + (D.parts || []).length + ')'),
@@ -1014,8 +1392,136 @@
         return h('button', { type: 'button', class: 'qitem linkrow', onclick: function () { openDetail({ row: x.row, mhcNo: x.mhcNo, isOld: false }); } },
           h('div', { class: 'qmain' }, h('b', null, x.customer || '-'), h('div', { class: 'muted small' }, [x.mhcNo, x.sn && 'SN ' + x.sn, fmtDate(x.date), x.tech].filter(Boolean).join(' · '))), chip(x.mhcStatus));
       })) : null;
-    var left = h('div', { class: 'col-left' }, lateBanner, survey, info, same, findings, parts, review), right = h('div', { class: 'col-right' }, office);
+    var qcard = can('quoteCreate') && D.approved && !r.isOld ? quoteCard(D, r, v) : null;
+    var left = h('div', { class: 'col-left' }, lateBanner, survey, info, same, findings, parts, review), right = h('div', { class: 'col-right' }, qcard, office);
     return h('div', null, back, h('div', { class: 'detail-grid' }, left, right));
+  }
+  /* ---------- Quotation SAP: upload PDF (Parts & Service terpisah) → No. & nilai terisi otomatis ---------- */
+  function quoteNos(g) { var a = [g('P_QNO'), g('S_QNO')].map(function (x) { return String(x || '').trim(); }).filter(Boolean); return a.filter(function (x, i) { return a.indexOf(x) === i; }).join(' · '); }
+  function quoteValText(g) {
+    var p = Number(g('P_QVAL')) || 0, s = Number(g('S_QVAL')) || 0;
+    if (!p && !s) return '';
+    return [p ? 'Parts ' + fmtRp(p) : '', s ? 'Service ' + fmtRp(s) : '', p && s ? 'Total ' + fmtRp(p + s) : ''].filter(Boolean).join(' · ');
+  }
+  var QMODES = [['net', 'Setelah diskon (sebelum PPN)'], ['total', 'Total termasuk PPN']];
+  function quoteSideVal(res, s, mode) { return res.side === 'PS' ? res.values[mode][s] : (mode === 'total' ? res.total : res.net); }
+  function quoteApply(Q, s) {
+    var x = Q.sides[s], V = Q.vals;
+    if (!x || !x.res) return;
+    V[s + '_QNO'] = x.res.qno || V[s + '_QNO'] || ''; V[s + '_QDATE'] = x.res.date || V[s + '_QDATE'] || todayISO();
+    var n = quoteSideVal(x.res, s, Q.mode); V[s + '_QVAL'] = n ? String(n) : '';
+    V.QTYPE = V.P_QNO && V.S_QNO ? 'Parts & Service' : V.S_QNO ? 'Service' : 'Parts';
+  }
+  function pickQuotePdf(D, r, v, force) {
+    var inp = h('input', { type: 'file', accept: 'application/pdf,.pdf', style: 'display:none' });
+    if (!force) inp.multiple = true;
+    inp.addEventListener('change', function () {
+      var list = Array.prototype.slice.call(inp.files || []); inp.remove();
+      if (!list.length) return;
+      if (list.length > 2) return toast('Pilih maksimal 2 PDF (Parts & Service)', 'err');
+      var badF = list.filter(function (f) { return (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) || f.size > 10 * 1024 * 1024; })[0];
+      if (badF) return toast(badF.name + ': harus PDF, maks 10 MB', 'err');
+      var F = mhc().f, g = function (k) { return F[k] >= 0 ? v[F[k]] : ''; };
+      if (!D.q) {
+        var vals = {};
+        ['QTYPE', 'P_QNO', 'P_QDATE', 'P_QVAL', 'S_QNO', 'S_QDATE', 'S_QVAL'].forEach(function (k) { vals[k] = g(k) == null ? '' : String(g(k)); });
+        D.q = { vals: vals, mode: 'net', sides: { P: null, S: null }, same: false, reading: 0, notes: [], lines: [] };
+      }
+      var Q = D.q; Q.reading += list.length; Q.err = ''; render();
+      var card = document.querySelector('.quote-card'); if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      var pn = []; (D.parts || []).forEach(function (p) { pn.push(p.partNo); if (p.jdsNo) pn.push(p.jdsNo); });
+      var chain = Promise.resolve(), msgs = [];
+      list.forEach(function (f) {
+        chain = chain.then(function () { return f.arrayBuffer().then(pdfTextLines); }).then(function (lines) {
+          if (D.q !== Q) return;
+          Q.lines = lines;
+          if (!lines.join('').trim()) { Q.sides[force || 'P'] = { file: f, name: f.name, res: null }; Q.err = f.name + ' berupa gambar / hasil scan — teksnya tidak bisa dibaca. Isi nomor & nilai manual.'; return; }
+          var x = parseQuoteText(lines, { partNos: pn, hasParts: (D.parts || []).length > 0, mhcNo: r.mhcNo });
+          var side = force || x.side, item = { file: f, name: f.name, res: x };
+          if (force && x.side !== 'PS' && x.side !== force) msgs.push(f.name + ' terbaca sebagai quotation ' + (x.side === 'S' ? 'Service' : 'Parts') + ' — tetap dimasukkan ke ' + (force === 'S' ? 'Service' : 'Parts'));
+          if (side === 'PS') { Q.sides.P = Q.sides.S = item; Q.same = true; quoteApply(Q, 'P'); quoteApply(Q, 'S'); }
+          else { Q.sides[side] = item; Q.same = false; quoteApply(Q, side); }
+          msgs.unshift((side === 'PS' ? 'Parts & Service' : side === 'S' ? 'Service' : 'Parts') + ' ' + (x.qno || '(nomor tidak terbaca)'));
+          Q.notes = Q.notes.concat(x.notes.map(function (n) { return f.name + ': ' + n; }));
+        }).catch(function (e) { if (D.q === Q) Q.err = f.name + ': ' + e.message; }).then(function () { if (D.q === Q) Q.reading--; });
+      });
+      chain.then(function () { if (D.q !== Q) return; render(); if (msgs.length) toast('Terbaca: ' + msgs.join(' · ') + ' — cek lalu simpan', Q.err ? 'warn' : 'ok'); });
+    });
+    document.body.appendChild(inp); inp.click();
+  }
+  function quoteCard(D, r, v) {
+    var M = mhc(), F = M.f, g = function (k) { return F[k] >= 0 ? v[F[k]] : ''; }, Q = D.q;
+    if (!Q) {
+      var pno = String(g('P_QNO') || '').trim(), sno = String(g('S_QNO') || '').trim(), qt = String(g('QTYPE') || '');
+      if ((pno && sno) || (qt === 'Parts' && pno) || (qt === 'Service' && sno)) return null;
+      var st = function (lbl, no) { return h('div', { class: 'kv' }, h('span', null, lbl), no ? h('b', { class: 'ok-text' }, '✓ ' + no) : h('span', { class: 'muted' }, 'belum')); };
+      return h('div', { class: 'card quote-card prompt' }, h('h2', null, 'Quotation SAP'),
+        h('p', { class: 'muted small' }, 'Buat quotation di SAP dari MHC ini (⬇ Excel parts untuk upload ke SAP), lalu upload PDF-nya di sini — quotation Parts dan Service boleh dipilih sekaligus. No. quotation, tanggal dan nilai terisi otomatis.'),
+        pno || sno ? [st('Parts', pno), st('Service', sno)] : null,
+        h('button', { type: 'button', class: 'btn primary block', onclick: function () { pickQuotePdf(D, r, v); } }, '⬆ Upload Quotation (PDF)'));
+    }
+    var V = Q.vals;
+    var fld = function (label, key, type) {
+      var inp;
+      if (type === 'number') {
+        inp = h('input', { class: 'inp num', inputmode: 'decimal', id: 'q-' + key, value: V[key] === '' ? '' : fmtNum(V[key]), placeholder: '0' });
+        inp.addEventListener('input', function () { var n = parseNum(inp.value); V[key] = inp.value.trim() === '' ? '' : isNaN(n) ? inp.value : String(n); });
+        inp.addEventListener('blur', function () { var n = parseNum(inp.value); if (!isNaN(n)) inp.value = fmtNum(n); });
+      } else {
+        inp = h('input', { class: 'inp', id: 'q-' + key, type: type || 'text', value: V[key] || '' });
+        inp.addEventListener('input', function () { V[key] = inp.value.trim(); });
+      }
+      return h('div', { class: 'field half' }, h('label', { class: 'lbl' }, label), inp);
+    };
+    var sideBlock = function (s) {
+      var nm = s === 'P' ? 'Parts' : 'Service', x = Q.sides[s], res = x && x.res;
+      var brk = res ? [['Subtotal', res.sub], ['Diskon', res.disc], ['Setelah diskon', res.net], ['PPN', res.tax], ['Total', res.total]]
+        .filter(function (p, i) { return p[1] || i === 0; }).map(function (p) { return p[0] + ' ' + fmtNum(p[1]); }).join(' · ') : '';
+      return h('div', { class: 'qside' },
+        h('div', { class: 'card-head' }, h('h3', { class: 'sec-t' }, nm),
+          x ? h('span', { class: 'qfile small' }, '📄 ' + x.name + (Q.same ? ' (Parts & Service)' : ''), h('button', { type: 'button', class: 'linkbtn', onclick: function () { pickQuotePdf(D, r, v, s); } }, 'ganti'))
+            : h('button', { type: 'button', class: 'btn small', onclick: function () { pickQuotePdf(D, r, v, s); } }, '⬆ PDF ' + nm)),
+        h('div', { class: 'grid2' }, fld('No. Quotation ' + nm, s + '_QNO'), fld('Tanggal', s + '_QDATE', 'date'), fld('Nilai ' + nm + ' (IDR)', s + '_QVAL', 'number')),
+        brk ? h('div', { class: 'small muted qbrk' }, 'Dari PDF: ' + brk + (res.side === 'PS' ? ' — dibagi sebanding Parts/Service' : '')) : null);
+    };
+    var qt2 = h('select', { class: 'inp', id: 'q-QTYPE', onchange: function (e) { V.QTYPE = e.target.value; } },
+      (M.qtypeOptions || ['Parts', 'Service', 'Parts & Service']).map(function (o) { return h('option', { value: o, selected: o === V.QTYPE }, o); }));
+    var save = function (ev) {
+      var btn = ev.currentTarget, errs = [], out = {};
+      ['P', 'S'].forEach(function (s) {
+        var nm = s === 'P' ? 'Parts' : 'Service', no = String(V[s + '_QNO'] || '').trim(), raw = String(V[s + '_QVAL'] || '').trim(), n = raw === '' ? '' : parseNum(raw);
+        if (raw !== '' && isNaN(n)) errs.push('Nilai ' + nm + ' harus angka');
+        if (no && raw === '') errs.push('Nilai quotation ' + nm + ' belum diisi');
+        if (!no && Number(n) > 0) errs.push('No. quotation ' + nm + ' belum diisi');
+        out[s + '_QNO'] = no; out[s + '_QVAL'] = raw === '' ? '' : n; out[s + '_QDATE'] = no ? (V[s + '_QDATE'] || todayISO()) : '';
+      });
+      if (!out.P_QNO && !out.S_QNO) errs.push('Isi No. Quotation Parts dan/atau Service');
+      out.QTYPE = V.QTYPE || (out.P_QNO && out.S_QNO ? 'Parts & Service' : out.S_QNO ? 'Service' : 'Parts');
+      if (errs.length) return toast(errs.join(' · '), 'err');
+      if (!online()) return toast('Butuh koneksi internet untuk upload PDF', 'warn');
+      btn.disabled = true; btn.textContent = 'Mengupload & menyimpan…';
+      var enc = function (s) { var x = Q.sides[s]; return x && x.file ? blobToB64(x.file).then(function (b) { return { data: b, name: x.name }; }) : Promise.resolve(null); };
+      Promise.all([enc('P'), Q.same ? Promise.resolve(null) : enc('S')]).then(function (f) {
+        var files = {}; if (f[0]) files.P = f[0]; if (f[1]) files.S = f[1];
+        return api('formSaveQuote', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, values: out, files: files, same: Q.same }, 180000);
+      }).then(function (x) { D.q = null; toast('Quotation tersimpan · status: ' + x.mhcStatus, 'ok'); loadCounts(); openDetail(r); })
+        .catch(function (e) { btn.disabled = false; btn.textContent = 'Simpan quotation'; toast(e.message, 'err'); });
+    };
+    var items = [];
+    ['P', 'S'].forEach(function (s) { var x = Q.sides[s]; if (x && x.res && (s === 'P' || !Q.same)) items = items.concat(x.res.items); });
+    return h('div', { class: 'card quote-card' },
+      h('div', { class: 'card-head' }, h('h2', null, 'Quotation SAP'), h('button', { type: 'button', class: 'linkbtn', onclick: function () { D.q = null; render(); } }, 'Batal')),
+      Q.reading ? h('div', { class: 'banner info' }, 'Membaca isi PDF…')
+        : Q.err ? h('div', { class: 'banner warn' }, Q.err)
+        : h('div', { class: 'banner ok col' }, h('b', null, 'Terisi otomatis dari PDF — cek dulu sebelum simpan.'), Q.notes.map(function (n) { return h('span', { class: 'small' }, '• ' + n); })),
+      h('p', { class: 'hint' }, 'Nilai yang dicatat: setelah diskon, sebelum PPN (baris "After Diskon" di PDF SAP).'),
+      h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Quotation Type'), qt2),
+      sideBlock('P'), sideBlock('S'),
+      items.length ? h('details', { class: 'qread' }, h('summary', null, items.length + ' baris item yang terbaca'),
+        items.map(function (it) { return h('div', { class: 'qline' }, h('span', { class: 'chip ' + (it.side === 'S' ? 'info' : 'ok') }, it.side === 'S' ? 'Service' : 'Parts'), h('span', { class: 'qtext' }, it.text), h('b', null, fmtNum(it.value))); })) : null,
+      Q.lines && Q.lines.length ? h('details', { class: 'qread' }, h('summary', null, 'Teks PDF terakhir'), h('pre', { class: 'qraw' }, Q.lines.join('\n'))) : null,
+      h('p', { class: 'hint' }, 'Status Parts / Service otomatis menjadi "Quotation Dibuat". PDF disimpan di Google Drive dan bisa diunduh dari detail MHC.'),
+      h('button', { type: 'button', class: 'btn primary block', disabled: !!Q.reading, onclick: save }, 'Simpan quotation'));
   }
   function viewOffice(D, r, v) {
     var M = mhc(), F = M.f, fields = [], formula = {}, editAny = false;
@@ -1330,7 +1836,8 @@
   /* ================= start ================= */
   window.addEventListener('online', function () { renderStatus(); syncQueue(); });
   window.addEventListener('offline', renderStatus);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) syncQueue(); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { syncQueue(); if (Date.now() - lastPoll > 20000) pollCounts(true); } });
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.openFilter && S.session) openList(e.data.openFilter); });
   var lastWide = wide();
   window.addEventListener('resize', debounce(function () { if (wide() !== lastWide) { lastWide = wide(); if (S.view !== 'mhc') render(); } }, 200));
   setInterval(syncQueue, 60000);
