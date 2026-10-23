@@ -152,6 +152,7 @@
     else if (can('partsJds')) w.push(['jds', 'part perlu dicari di JDS', 'jds']);
     if (can('quoteCreate')) w.push(['needquote', 'MHC sudah disetujui SL — perlu dibuatkan quotation', 'needquote']);
     if (can('marReview')) w.push(['marPending', 'hari MAR mekanik menunggu review', null]);
+    if (isPssrOnly()) w.push(['myfudue', 'quotation perlu Anda follow up ke customer', 'myfudue']);
     return w;
   }
   function notifyNew(prev, cur) {
@@ -279,7 +280,7 @@
     document.body.classList.toggle('is-wide', wide());
     if (!S.session) { app.appendChild(viewLogin()); return; }
     app.appendChild(h('header', { class: 'top', id: 'top' })); renderHeader();
-    var main = h('main', { class: 'main' + (S.view === 'mhc' ? ' with-steps' : '') + (S.view === 'detail' || S.view === 'list' ? ' office' : '') });
+    var main = h('main', { class: 'main' + (S.view === 'mhc' ? ' with-steps' : '') + (S.view === 'detail' || S.view === 'list' || S.view === 'quotes' ? ' office' : '') });
     if (S.session.expired) main.appendChild(h('div', { class: 'banner warn' }, h('div', null, h('b', null, 'Sesi login habis. '), 'Data antrean tetap aman di HP ini.'),
       h('button', { class: 'btn small', onclick: function () { logout(true); } }, 'Login ulang')));
     if (!S.boot) main.appendChild(h('div', { class: 'card center' }, h('p', null, online() ? 'Mengambil data form dari Google Sheet…' : 'Sambungkan ke internet sekali untuk mengunduh data form.'),
@@ -290,6 +291,7 @@
     else if (S.view === 'queue') main.appendChild(viewQueue());
     else if (S.view === 'mar' && can('marInput')) main.appendChild(viewMar());
     else if (S.view === 'marTeam' && can('marReview|marExport')) main.appendChild(viewMarTeam());
+    else if (S.view === 'quotes' && can('quoteMonitor')) main.appendChild(viewQuotes());
     else main.appendChild(viewHome());
     app.appendChild(main);
     app.appendChild(viewTabs());
@@ -387,8 +389,8 @@
         can('quoteCreate|quoteStatus') ? (isPssrOnly() ? (C.mylate ? tile('⏰', 'Lewat ' + (mhc().submitDays || 3) + ' hari', 'Quotation belum dikirim ke customer — isi alasannya', inbox('mylate'), 'late', C.mylate) : null)
           : (C.late ? tile('⏰', 'Lewat ' + (mhc().submitDays || 3) + ' hari', 'Quotation belum dikirim ke customer — isi alasannya', inbox('late'), 'late', C.late) : null)) : null,
         can('quoteCreate') ? tile('Rp', 'Perlu Quotation', 'MHC sudah disetujui SL · upload quotation SAP (PDF), nomor & nilai terisi otomatis', inbox('needquote'), C.needquote ? 'accent' : '', C.needquote) : null,
-        can('quoteStatus') ? (isPssrOnly() ? tile('⇄', 'Quotation saya', 'Customer yang Anda pegang: update Negosiasi / PO / Invoice / Lose', inbox('myopen'), '', C.myopen)
-          : tile('⇄', 'Quotation Berjalan', 'Update Negosiasi / Approved (PO) / Invoice / Lose', inbox('open'), '', C.open)) : null,
+        can('quoteMonitor') ? (isPssrOnly() ? tile('⇄', 'Quotation saya', (C.myfudue ? C.myfudue + ' perlu di-follow up · ' : '') + 'Follow up customer, catat hasilnya, update Negosiasi / PO / Lose', function () { openQuotes(); }, C.myfudue ? 'accent' : '', C.myfudue)
+          : tile('⇄', 'Monitoring Quotation', 'Quotation berjalan per PSSR, umur, nilai & follow up' + (C.fudue ? ' · ' + C.fudue + ' perlu follow up' : ''), function () { openQuotes(); }, '', C.fudue)) : null,
         invoiceOnly() ? tile('☎', 'MHC Selesai (Invoice)', 'Untuk survei kepuasan pelanggan · kontak customer & PDF', inbox('invoice'), '', C.invoice)
           : canViewMhc() ? tile('☰', 'Daftar MHC', 'Cari MHC, lihat detail, download PDF', inbox(defaultFilter())) : null,
         can('marInput') ? tile('◷', 'Mechanics Activity Report', 'Catat kegiatan harian: travel, working, training, reporting, standby', function () { openMar(); }) : null,
@@ -400,9 +402,9 @@
   }
   // Menu form berikutnya: tampil hanya untuk role yang mengisinya (ADMIN_HO selalu)
   var NEXT_MENUS = [
-    ['yardInput', '◫', 'Machine Yard Activity', ['MEKANIK', 'SERVICE_LEADER', 'ADMIN_SERVICE']],
+    ['yardInput', '◫', 'Machine Yard Activity', ['MEKANIK', 'SERVICE_LEADER', 'ADMIN_PS']],
     ['callCenter', '☏', 'Call Center', ['CALL_CENTER']],
-    ['popUpdate', '⟳', 'Update Population', ['ADMIN_PARTS', 'ADMIN_SERVICE']]
+    ['popUpdate', '⟳', 'Update Population', ['ADMIN_PS', 'PSSR']]
   ];
   function hasRole(list) { var R = S.session.user.roles || []; return R.indexOf('ADMIN_HO') >= 0 || list.some(function (r) { return R.indexOf(r) >= 0; }); }
   // hak akses dari server bila ada; cadangan dari role (untuk sesi login versi lama)
@@ -790,9 +792,9 @@
   }
 
   /* ================= daftar ================= */
-  function isPssrOnly() { var R = S.session.user.roles || []; return R.indexOf('PSSR') >= 0 && R.indexOf('ADMIN_PARTS') < 0 && R.indexOf('ADMIN_SERVICE') < 0 && R.indexOf('ADMIN_HO') < 0; }
+  function isPssrOnly() { var R = S.session.user.roles || []; return R.indexOf('PSSR') >= 0 && R.indexOf('ADMIN_PS') < 0 && R.indexOf('ADMIN_HO') < 0; }
   var FILTERS = [['review', 'Review MHC', 'slReview'], ['late', 'Lewat batas hari', 'lateAll'], ['mylate', 'Lewat batas hari', 'pssrOnly'], ['jds', 'Cari Part di JDS', 'partsJds'], ['needquote', 'Perlu Quotation', 'quoteCreate'], ['myopen', 'Quotation saya', 'pssrOnly'],
-                 ['open', 'Quotation Berjalan', 'quoteStatus'], ['invoice', 'Selesai (Invoice)', 'invOnly'],
+                 ['open', 'Quotation Berjalan', 'quoteStatus'], ['myfudue', 'Perlu follow up', 'pssrOnly'], ['fudue', 'Perlu follow up', 'lateAll'], ['invoice', 'Selesai (Invoice)', 'invOnly'],
                  ['mine', 'Milik saya', 'mhcInput'], ['all', 'Semua', '']];
   function openList(f) { S.list.filter = f; S.list.rows = null; go('list'); loadList(); }
   function loadList() {
@@ -850,10 +852,12 @@
 
   /* ================= detail ================= */
   function openDetail(r) {
-    S.detail = { row: r, values: null, loading: true }; go('detail');
+    var from = S.view === 'quotes' ? 'quotes' : S.view === 'detail' && S.detail ? S.detail.from : 'list';
+    S.detail = { row: r, values: null, loading: true, from: from }; go('detail');
     api('formGetMhc', { token: S.session.token, row: r.row }).then(function (x) {
       S.detail.values = x.values; S.detail.parts = x.parts; S.detail.sides = x.sides; S.detail.formulaCols = x.formulaCols; S.detail.loading = false;
       S.detail.sameCall = x.sameCall || []; S.detail.approved = x.approved !== false; S.detail.late = x.late || {}; S.detail.quoteLocked = !!x.quoteLocked;
+      S.detail.followUps = x.followUps || []; S.detail.fu = x.fu || {};
       if (S.view === 'detail') render();
     }).catch(function (e) { S.detail.loading = false; toast(e.message, 'err'); if (S.view === 'detail') render(); });
   }
@@ -1316,7 +1320,7 @@
   }
   function viewDetail() {
     var D = S.detail, r = D.row, M = mhc(), F = M.f, v = D.values;
-    var back = h('button', { type: 'button', class: 'btn ghost small back', onclick: function () { go('list'); } }, '‹ Kembali ke daftar');
+    var back = h('button', { type: 'button', class: 'btn ghost small back', onclick: function () { if (D.from === 'quotes') openQuotes(); else go('list'); } }, D.from === 'quotes' ? '‹ Kembali ke monitoring' : '‹ Kembali ke daftar');
     if (D.loading || !v) return h('div', null, back, h('div', { class: 'card center muted' }, D.loading ? 'Memuat detail…' : 'Gagal memuat.'));
     var g = function (k) { return F[k] >= 0 ? v[F[k]] : ''; };
     var bads = [];
@@ -1393,7 +1397,8 @@
           h('div', { class: 'qmain' }, h('b', null, x.customer || '-'), h('div', { class: 'muted small' }, [x.mhcNo, x.sn && 'SN ' + x.sn, fmtDate(x.date), x.tech].filter(Boolean).join(' · '))), chip(x.mhcStatus));
       })) : null;
     var qcard = can('quoteCreate') && D.approved && !r.isOld ? quoteCard(D, r, v) : null;
-    var left = h('div', { class: 'col-left' }, lateBanner, survey, info, same, findings, parts, review), right = h('div', { class: 'col-right' }, qcard, office);
+    var fuc = r.isOld && !quoteNos(g) ? null : fuCard(D, r, v), fuTop = fuc && !wide();   // di HP: kartu follow up langsung di bawah ringkasan
+    var left = h('div', { class: 'col-left' }, lateBanner, survey, info, fuTop ? fuc : null, same, findings, parts, review), right = h('div', { class: 'col-right' }, qcard, fuTop ? null : fuc, office);
     return h('div', null, back, h('div', { class: 'detail-grid' }, left, right));
   }
   /* ---------- Quotation SAP: upload PDF (Parts & Service terpisah) → No. & nilai terisi otomatis ---------- */
@@ -1522,6 +1527,219 @@
       Q.lines && Q.lines.length ? h('details', { class: 'qread' }, h('summary', null, 'Teks PDF terakhir'), h('pre', { class: 'qraw' }, Q.lines.join('\n'))) : null,
       h('p', { class: 'hint' }, 'Status Parts / Service otomatis menjadi "Quotation Dibuat". PDF disimpan di Google Drive dan bisa diunduh dari detail MHC.'),
       h('button', { type: 'button', class: 'btn primary block', disabled: !!Q.reading, onclick: save }, 'Simpan quotation'));
+  }
+  /* ================= Monitoring quotation & follow up (PSSR / Admin PS / SL) ================= */
+  var Q_OPEN = ['Quotation Dibuat', 'Negosiasi', 'Approved (PO)'];
+  var QFILTERS = [['due', 'Perlu follow up'], ['open', 'Semua berjalan'], ['qd', 'Quotation Dibuat'], ['nego', 'Negosiasi'], ['po', 'Approved (PO)'], ['won', 'Invoice'], ['lose', 'Lose']];
+  function qSides(r) { return [r.P && Object.assign({ k: 'P', label: 'Parts' }, r.P), r.S && Object.assign({ k: 'S', label: 'Service' }, r.S)].filter(Boolean); }
+  function qHas(r, st) { return qSides(r).some(function (s) { return s.status === st; }); }
+  function qMatch(r, f) {
+    if (f === 'due') return r.fu.due;
+    if (f === 'open') return r.open;
+    if (f === 'qd') return qHas(r, 'Quotation Dibuat');
+    if (f === 'nego') return qHas(r, 'Negosiasi');
+    if (f === 'po') return qHas(r, 'Approved (PO)');
+    if (f === 'won') return qHas(r, 'Invoice');
+    if (f === 'lose') return qSides(r).length > 0 && qSides(r).every(function (s) { return s.status === 'Lose'; });
+    return true;
+  }
+  function qSum(rows, st) { var n = 0, v = 0; rows.forEach(function (r) { var hit = false; qSides(r).forEach(function (s) { if (st.indexOf(s.status) >= 0) { v += s.val; hit = true; } }); if (hit) n++; }); return { n: n, v: v }; }
+  function fmtRpShort(n) {
+    n = Number(n) || 0;
+    if (n >= 1e9) return 'Rp ' + (n / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 2 }) + ' M';
+    if (n >= 1e6) return 'Rp ' + (n / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + ' jt';
+    return fmtRp(n);
+  }
+  function fuText(fu) {
+    if (!fu || !fu.active) return '';
+    if (fu.due) return fu.next ? 'Jadwal follow up ' + fmtDate(fu.next) + (fu.overdue ? ' · lewat ' + fu.overdue + ' hari' : ' · hari ini') : 'Belum ada follow up ' + fu.since + ' hari';
+    return fu.next ? 'Follow up berikutnya ' + fmtDate(fu.next) : 'Aktivitas terakhir ' + fu.since + ' hari lalu';
+  }
+  function openQuotes(f) {
+    var Q = S.quotes || (S.quotes = { filter: 'due', pssr: '', q: '', rows: null });
+    if (f) Q.filter = f;
+    go('quotes'); loadQuotes();
+  }
+  function loadQuotes() {
+    var Q = S.quotes;
+    if (!online()) { toast('Monitoring quotation butuh koneksi internet', 'warn'); return; }
+    Q.loading = true; render();
+    api('formListQuotes', { token: S.session.token }, 60000).then(function (x) {
+      Q.loading = false; Q.rows = x.rows; Q.meta = x;
+      if (Q.filter === 'due' && !x.rows.some(function (r) { return r.fu.due; })) Q.filter = 'open';
+      setCounts(isPssrOnly() ? { myfudue: x.rows.filter(function (r) { return r.fu.due; }).length } : { fudue: x.rows.filter(function (r) { return r.fu.due; }).length });
+      if (S.view === 'quotes') render();
+    }).catch(function (e) { Q.loading = false; if (e.auth) return markExpired(); toast(e.message, 'err'); if (S.view === 'quotes') render(); });
+  }
+  function exportQuotesXlsx(rows) {
+    var head = ['MHC No', 'Tanggal MHC', 'Cabang', 'Customer', 'Unit', 'PSSR', 'Sisi', 'No. Quotation', 'Tgl Quotation', 'Nilai Quotation (IDR)', 'Status',
+      'PO No', 'PO Date', 'Invoice No', 'Invoice Date', 'Invoice Value (IDR)', 'Reason For Lose', 'Umur (hari)', 'Follow up terakhir', 'Catatan follow up', 'Jadwal follow up', 'Jumlah follow up', 'Perlu follow up'];
+    var out = [head];
+    rows.forEach(function (r) {
+      qSides(r).forEach(function (s) {
+        out.push([r.mhcNo || 'Data lama', r.date, r.branch, r.customer, r.unit, r.pssr, s.label, s.no, s.date, s.val || '', s.status, s.po, s.poDate, s.inv, s.invDate, s.invVal || '', s.reason,
+          r.aging, r.fu.last, r.fu.note, r.fu.next, r.fu.count || '', r.fu.due ? 'Ya' : '']);
+      });
+    });
+    saveBlob(makeXlsx([{ name: 'Monitoring Quotation', rows: out, widths: [20, 12, 8, 28, 26, 22, 9, 22, 12, 16, 15, 16, 12, 18, 12, 16, 24, 10, 14, 40, 14, 10, 10] }]),
+      'Monitoring_Quotation_' + S.session.company + '_' + todayISO() + '.xlsx');
+    toast('Excel monitoring diunduh', 'ok');
+  }
+  function viewQuotes() {
+    var Q = S.quotes, M = Q.meta || {};
+    var title = isPssrOnly() ? 'Quotation saya' : 'Monitoring Quotation';
+    if (Q.loading && !Q.rows) return h('div', null, h('h2', { class: 'page-t' }, title), h('div', { class: 'card center muted' }, 'Memuat quotation…'));
+    if (!Q.rows) return h('div', null, h('h2', { class: 'page-t' }, title), h('div', { class: 'card center' }, h('button', { class: 'btn', onclick: loadQuotes }, 'Tampilkan')));
+    var base = Q.rows.filter(function (r) { return !Q.pssr || (Q.pssr === '—' ? !r.pssr : r.pssr === Q.pssr); });
+    var ql = Q.q.toLowerCase();
+    var rows = base.filter(function (r) { return qMatch(r, Q.filter) && (!ql || [r.mhcNo, r.customer, r.unit, r.pssr, r.P && r.P.no, r.S && r.S.no, r.callId].join(' ').toLowerCase().indexOf(ql) >= 0); });
+    rows.sort(function (a, b) { return (b.fu.due - a.fu.due) || (b.fu.overdue - a.fu.overdue) || (b.open - a.open) || (b.aging - a.aging); });
+    var open = qSum(base, ['Quotation Dibuat', 'Negosiasi', 'Approved (PO)']), nego = qSum(base, ['Negosiasi']), po = qSum(base, ['Approved (PO)']);
+    var won = { n: 0, v: 0 }, lose = qSum(base, ['Lose']);
+    base.forEach(function (r) { var hit = false; qSides(r).forEach(function (s) { if (s.status === 'Invoice') { won.v += s.invVal || s.val; hit = true; } }); if (hit) won.n++; });
+    var due = base.filter(function (r) { return r.fu.due; }).length;
+    var kpi = function (label, big, sub, tone, f) {
+      return h('button', { type: 'button', class: 'kpi ' + (tone || '') + (Q.filter === f ? ' on' : ''), onclick: function () { Q.filter = f; render(); } },
+        h('span', { class: 'kpi-l' }, label), h('b', { class: 'kpi-v' }, big), h('span', { class: 'kpi-s' }, sub));
+    };
+    var kpis = h('div', { class: 'kpis' },
+      kpi('Perlu follow up', String(due), 'jadwal lewat / ' + (M.followUpDays || 7) + ' hari tanpa kabar', due ? 'bad' : 'ok', 'due'),
+      kpi('Berjalan', String(open.n), fmtRpShort(open.v), '', 'open'),
+      kpi('Negosiasi', String(nego.n), fmtRpShort(nego.v), '', 'nego'),
+      kpi('Approved (PO)', String(po.n), fmtRpShort(po.v) + ' · tunggu invoice', '', 'po'),
+      kpi('Invoice', String(won.n), fmtRpShort(won.v) + ' · ' + (M.closedDays || 120) + ' hari', 'ok', 'won'),
+      kpi('Lose', String(lose.n), fmtRpShort(lose.v) + ' · ' + (M.closedDays || 120) + ' hari', '', 'lose'));
+    var pssrNames = {}; Q.rows.forEach(function (r) { pssrNames[r.pssr || '—'] = 1; });
+    var pssrSel = !isPssrOnly() ? h('select', { class: 'inp sm', id: 'q-pssr', onchange: function (e) { Q.pssr = e.target.value; render(); } },
+      h('option', { value: '' }, 'Semua PSSR'), Object.keys(pssrNames).sort().map(function (n) { return h('option', { value: n, selected: n === Q.pssr }, n === '—' ? '(belum ada PSSR)' : n); })) : null;
+    var q = h('input', { class: 'inp sm', type: 'search', id: 'q-search', placeholder: 'Cari customer / MHC / No. quotation…', value: Q.q });
+    q.addEventListener('input', debounce(function () { Q.q = q.value.trim(); render(); var el = document.getElementById('q-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 300));
+    var head = h('div', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', null, title), h('div', { class: 'row-btns' },
+        h('button', { class: 'btn small ghost', onclick: loadQuotes, disabled: !!Q.loading }, Q.loading ? 'Memuat…' : '↻ Muat ulang'),
+        h('button', { class: 'btn small', onclick: function () { exportQuotesXlsx(rows); } }, '⬇ Excel'))),
+      kpis,
+      h('div', { class: 'chips filt' }, QFILTERS.map(function (f) {
+        var n = base.filter(function (r) { return qMatch(r, f[0]); }).length;
+        return h('button', { type: 'button', class: 'fchip' + (Q.filter === f[0] ? ' on' : ''), onclick: function () { Q.filter = f[0]; render(); } }, f[1], n ? h('span', { class: 'fn' }, n) : null);
+      })),
+      h('div', { class: 'search-row' }, q, pssrSel));
+    // rekap per PSSR (Admin PS / SL)
+    var recap = null;
+    if (!isPssrOnly() && !Q.pssr) {
+      var by = {};
+      Q.rows.forEach(function (r) {
+        var k = r.pssr || '—', x = by[k] || (by[k] = { name: k, open: 0, openV: 0, due: 0, po: 0, wonV: 0, lose: 0 });
+        if (r.open) x.open++; if (r.fu.due) x.due++;
+        qSides(r).forEach(function (s) { if (Q_OPEN.indexOf(s.status) >= 0) x.openV += s.val; if (s.status === 'Approved (PO)') x.po++; if (s.status === 'Invoice') x.wonV += s.invVal || s.val; if (s.status === 'Lose') x.lose++; });
+      });
+      var list = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.openV - a.openV; });
+      if (list.length > 1 || (list[0] && list[0].name === '—')) recap = h('details', { class: 'card recap', open: wide() }, h('summary', null, 'Rekap per PSSR'),
+        h('div', { class: 'tblwrap' }, h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ['PSSR', 'Berjalan', 'Nilai berjalan', 'Perlu follow up', 'Approved (PO)', 'Invoice (' + (M.closedDays || 120) + ' hari)', 'Lose'].map(function (t) { return h('th', null, t); }))),
+          h('tbody', null, list.map(function (x) {
+            return h('tr', { onclick: function () { Q.pssr = x.name; render(); } }, h('td', null, h('b', null, x.name === '—' ? '(belum ada PSSR)' : x.name)), h('td', { class: 'num' }, x.open),
+              h('td', { class: 'num' }, fmtRp(x.openV)), h('td', { class: 'num' }, x.due ? h('span', { class: 'chip bad' }, x.due) : '0'), h('td', { class: 'num' }, x.po), h('td', { class: 'num' }, fmtRp(x.wonV)), h('td', { class: 'num' }, x.lose));
+          })))));
+    }
+    var sideLine = function (s) {
+      return h('div', { class: 'qs' }, h('span', { class: 'qs-k' }, s.label), h('span', { class: 'qs-no' }, s.no), h('b', { class: 'qs-v' }, fmtRp(s.val)), chip(s.status));
+    };
+    var body;
+    if (!rows.length) body = h('div', { class: 'card center muted' }, Q.filter === 'due' ? 'Tidak ada quotation yang perlu di-follow up. 👍' : 'Tidak ada quotation di filter ini.');
+    else body = h('div', { class: 'qlist' }, rows.map(function (r) {
+      var ft = fuText(r.fu);
+      return h('button', { type: 'button', class: 'card item qitem2' + (r.fu.due ? ' due' : ''), onclick: function () { openDetail({ row: r.row, mhcNo: r.mhcNo, isOld: r.isOld }); } },
+        h('div', { class: 'item-top' }, h('b', null, r.customer || '(tanpa customer)'), h('span', { class: 'chip ' + (r.aging > 30 && r.open ? 'bad' : r.aging > 14 && r.open ? 'wait' : '') }, r.aging + ' hari')),
+        h('div', { class: 'muted small' }, [r.mhcNo || 'Data lama', r.unit, !isPssrOnly() ? (r.pssr ? 'PSSR ' + r.pssr : 'PSSR belum ada') : ''].filter(Boolean).join(' · ')),
+        qSides(r).map(sideLine),
+        ft ? h('div', { class: 'qfu small ' + (r.fu.due ? 'err-text' : 'muted') }, (r.fu.due ? '⏰ ' : '') + ft) : null,
+        r.fu.note ? h('div', { class: 'small muted qnote' }, (r.fu.last ? fmtDate(r.fu.last) + ' · ' : '') + r.fu.note) : null,
+        r.late ? h('div', { class: 'small err-text' }, 'Lewat ' + r.lateDays + ' hari sejak MHC — isi Submit Late Reason') : null);
+    }));
+    return h('div', null, head, recap, body);
+  }
+
+  /* ---------- Detail MHC: kartu follow up ---------- */
+  function fuCard(D, r, v) {
+    var M = mhc(), F = M.f, g = function (k) { return F[k] >= 0 ? v[F[k]] : ''; };
+    if (!can('quoteMonitor') || !quoteNos(g)) return null;
+    var fu = D.fu || {}, sides = [['P', 'Parts'], ['S', 'Service']].filter(function (s) { return String(g(s[0] + '_QNO') || '').trim(); });
+    var cur = function (s) { return (D.sides || {})[s] || ''; };
+    var canAdd = can('quoteStatus') && sides.some(function (s) { return Q_OPEN.indexOf(cur(s[0])) >= 0; });
+    var meths = M.fuMethods || ['Telepon', 'WhatsApp', 'Kunjungan', 'Email', 'Meeting'];
+    var FF = D.fuForm || (D.fuForm = { date: todayISO(), method: '', note: '', next: '', st: {} });
+    // PSSR yang memegang
+    var pssrRow;
+    if (can('quoteCreate')) {
+      var opts = (M.pssr || []).map(function (p) { return p.name; }); if (g('PSSR') && opts.indexOf(g('PSSR')) < 0) opts.unshift(g('PSSR'));
+      pssrRow = h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'PSSR yang follow up'),
+        h('select', { class: 'inp', id: 'fu-pssr', onchange: function (e) {
+          var name = e.target.value;
+          api('formSetPssr', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, pssr: name }).then(function () { v[F.PSSR] = name; toast(name ? 'PSSR diganti: ' + name : 'PSSR dikosongkan', 'ok'); render(); })
+            .catch(function (er) { toast(er.message, 'err'); render(); });
+        } }, h('option', { value: '' }, '— Belum ada —'), opts.map(function (n) { return h('option', { value: n, selected: n === g('PSSR') }, n); })));
+    } else pssrRow = kvRow('PSSR', g('PSSR') || 'Belum ada');
+    var form = null;
+    if (canAdd) {
+      var dt = h('input', { class: 'inp', type: 'date', id: 'fu-date', value: FF.date, max: todayISO() }); dt.addEventListener('change', function () { FF.date = dt.value; });
+      var note = h('textarea', { class: 'inp', id: 'fu-note', rows: 3, placeholder: 'Hasil pembicaraan dengan customer: tanggapan, keberatan, rencana PO…' }); note.value = FF.note;
+      note.addEventListener('input', function () { FF.note = note.value; });
+      var nx = h('input', { class: 'inp', type: 'date', id: 'fu-next', value: FF.next, min: isoAdd(FF.date || todayISO(), 1) }); nx.addEventListener('change', function () { FF.next = nx.value; });
+      var quick = [3, 7, 14].map(function (d) { return h('button', { type: 'button', class: 'btn small ghost', onclick: function () { FF.next = isoAdd(todayISO(), d); render(); } }, '+' + d + ' hari'); });
+      var stBlocks = sides.filter(function (s) { return Q_OPEN.indexOf(cur(s[0])) >= 0; }).map(function (s) {
+        var k = s[0], x = FF.st[k] || (FF.st[k] = { status: '', po: '', poDate: '', reason: '' });
+        var opts2 = ['Negosiasi', 'Approved (PO)', 'Lose'].filter(function (o) { return o !== cur(k); });
+        var sel = h('select', { class: 'inp', id: 'fu-st-' + k, onchange: function (e) { x.status = e.target.value; render(); } },
+          h('option', { value: '' }, 'Tetap ' + cur(k)), opts2.map(function (o) { return h('option', { value: o, selected: o === x.status }, o); }));
+        var extra = [];
+        if (x.status === 'Approved (PO)') {
+          var po = h('input', { class: 'inp', id: 'fu-po-' + k, value: x.po, placeholder: 'No. PO customer' }); po.addEventListener('input', function () { x.po = po.value; });
+          var pd = h('input', { class: 'inp', type: 'date', id: 'fu-pod-' + k, value: x.poDate || todayISO() }); x.poDate = x.poDate || todayISO(); pd.addEventListener('change', function () { x.poDate = pd.value; });
+          extra.push(h('div', { class: 'grid2' }, h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'PO No'), po), h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'PO Date'), pd)));
+        } else if (x.status === 'Lose') {
+          var rs = h('textarea', { class: 'inp', id: 'fu-rs-' + k, rows: 2, placeholder: 'Wajib: kenapa customer tidak jadi?' }); rs.value = x.reason; rs.addEventListener('input', function () { x.reason = rs.value; });
+          extra.push(h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Reason For Lose'), rs));
+        }
+        return h('div', { class: 'fu-st' }, h('label', { class: 'lbl' }, 'Status ' + s[1] + ' · ' + g(k + '_QNO')), sel, extra);
+      });
+      var save = function (ev) {
+        var btn = ev.currentTarget, vals = {}, errs = [];
+        if (!FF.method) errs.push('Pilih cara follow up');
+        if (!String(FF.note || '').trim()) errs.push('Isi hasil follow up');
+        Object.keys(FF.st).forEach(function (k) {
+          var x = FF.st[k]; if (!x.status) return;
+          vals[k + '_STATUS'] = x.status;
+          if (x.status === 'Approved (PO)') { if (!String(x.po || '').trim()) errs.push('PO No ' + (k === 'P' ? 'Parts' : 'Service') + ' belum diisi'); vals[k + '_PO'] = x.po.trim(); vals[k + '_PODATE'] = x.poDate || todayISO(); }
+          if (x.status === 'Lose') { if (!String(x.reason || '').trim()) errs.push('Reason For Lose ' + (k === 'P' ? 'Parts' : 'Service') + ' wajib diisi'); vals[k + '_REASON'] = String(x.reason || '').trim(); }
+        });
+        if (FF.next && FF.next <= (FF.date || todayISO())) errs.push('Jadwal berikutnya harus setelah tanggal follow up');
+        if (errs.length) return toast(errs.join(' · '), 'err');
+        if (!online()) return toast('Butuh koneksi internet', 'warn');
+        btn.disabled = true; btn.textContent = 'Menyimpan…';
+        api('formAddFollowUp', { token: S.session.token, row: r.row, mhcNo: r.mhcNo, fu: { date: FF.date, method: FF.method, note: FF.note.trim(), next: FF.next }, values: vals })
+          .then(function (x) { toast('Follow up tersimpan' + (Object.keys(vals).length ? ' · status: ' + x.mhcStatus : ''), 'ok'); D.fuForm = null; if (S.quotes) S.quotes.rows = null; loadCounts(); openDetail(r); })
+          .catch(function (e) { btn.disabled = false; btn.textContent = 'Simpan follow up'; toast(e.message, 'err'); });
+      };
+      form = h('div', { class: 'fu-form' }, h('h3', { class: 'sec-t' }, 'Catat follow up'),
+        h('div', { class: 'grid2' }, h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Tanggal'), dt)),
+        h('label', { class: 'lbl' }, 'Cara'), segmented(meths, FF.method, function (m) { FF.method = m; }, 'fu-method'),
+        h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Hasil follow up'), note),
+        stBlocks,
+        h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Jadwal follow up berikutnya (kosongkan bila tidak perlu)'), h('div', { class: 'next-row' }, nx, quick)),
+        h('button', { type: 'button', class: 'btn primary block', onclick: save }, 'Simpan follow up'));
+    }
+    var hist = (D.followUps || []).map(function (x) {
+      return h('div', { class: 'fu-item' }, h('div', { class: 'fu-top' }, h('b', null, fmtDate(x.date)), h('span', { class: 'chip' }, x.method), h('span', { class: 'muted small' }, x.by)),
+        h('div', null, x.result),
+        h('div', { class: 'small muted' }, [x.pStatus && 'Parts: ' + x.pStatus, x.sStatus && 'Service: ' + x.sStatus, x.next && 'Jadwal berikutnya ' + fmtDate(x.next)].filter(Boolean).join(' · ')));
+    });
+    var ft = fuText(fu);
+    return h('div', { class: 'card fu-card' + (fu.due ? ' due' : '') },
+      h('div', { class: 'card-head' }, h('h2', null, 'Follow Up Quotation'), fu.due ? h('span', { class: 'chip bad' }, 'Perlu follow up') : fu.next ? h('span', { class: 'chip info' }, 'Jadwal ' + fmtDate(fu.next)) : null),
+      ft ? h('p', { class: 'small ' + (fu.due ? 'err-text' : 'muted') }, ft) : null,
+      pssrRow, form,
+      h('h3', { class: 'sec-t' }, 'Riwayat (' + hist.length + ')'),
+      hist.length ? hist : h('p', { class: 'muted small' }, 'Belum ada follow up.'));
   }
   function viewOffice(D, r, v) {
     var M = mhc(), F = M.f, fields = [], formula = {}, editAny = false;
@@ -1837,7 +2055,7 @@
   window.addEventListener('online', function () { renderStatus(); syncQueue(); });
   window.addEventListener('offline', renderStatus);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { syncQueue(); if (Date.now() - lastPoll > 20000) pollCounts(true); } });
-  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.openFilter && S.session) openList(e.data.openFilter); });
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.openFilter && S.session) { if (e.data.openFilter === 'myfudue') openQuotes('due'); else openList(e.data.openFilter); } });
   var lastWide = wide();
   window.addEventListener('resize', debounce(function () { if (wide() !== lastWide) { lastWide = wide(); if (S.view !== 'mhc') render(); } }, 200));
   setInterval(syncQueue, 60000);
