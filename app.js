@@ -1612,7 +1612,8 @@
     var title = isPssrOnly() ? 'Quotation saya' : 'Monitoring Quotation';
     if (Q.loading && !Q.rows) return h('div', null, h('h2', { class: 'page-t' }, title), h('div', { class: 'card center muted' }, 'Memuat quotation…'));
     if (!Q.rows) return h('div', null, h('h2', { class: 'page-t' }, title), h('div', { class: 'card center' }, h('button', { class: 'btn', onclick: loadQuotes }, 'Tampilkan')));
-    var base = Q.rows.filter(function (r) { return !Q.pssr || (Q.pssr === '—' ? !r.pssr : r.pssr === Q.pssr); });
+    var nOld = Q.rows.filter(function (r) { return r.isOld; }).length;
+    var base = Q.rows.filter(function (r) { return (Q.old || !r.isOld) && (!Q.pssr || (Q.pssr === '—' ? !r.pssr : r.pssr === Q.pssr)); });
     var ql = Q.q.toLowerCase();
     var rows = base.filter(function (r) { return qMatch(r, Q.filter) && (!ql || [r.mhcNo, r.customer, r.unit, r.pssr, r.P && r.P.no, r.S && r.S.no, r.callId].join(' ').toLowerCase().indexOf(ql) >= 0); });
     rows.sort(function (a, b) { return (b.fu.due - a.fu.due) || (b.fu.overdue - a.fu.overdue) || (b.open - a.open) || (b.aging - a.aging); });
@@ -1631,7 +1632,7 @@
       kpi('Approved (PO)', String(po.n), fmtRpShort(po.v) + ' · tunggu invoice', '', 'po'),
       kpi('Invoice', String(won.n), fmtRpShort(won.v) + ' · ' + (M.closedDays || 120) + ' hari', 'ok', 'won'),
       kpi('Lose', String(lose.n), fmtRpShort(lose.v) + ' · ' + (M.closedDays || 120) + ' hari', '', 'lose'));
-    var pssrNames = {}; Q.rows.forEach(function (r) { pssrNames[r.pssr || '—'] = 1; });
+    var pssrNames = {}; Q.rows.forEach(function (r) { if (Q.old || !r.isOld) pssrNames[r.pssr || '—'] = 1; });
     var pssrSel = !isPssrOnly() ? h('select', { class: 'inp sm', id: 'q-pssr', onchange: function (e) { Q.pssr = e.target.value; render(); } },
       h('option', { value: '' }, 'Semua PSSR'), Object.keys(pssrNames).sort().map(function (n) { return h('option', { value: n, selected: n === Q.pssr }, n === '—' ? '(belum ada PSSR)' : n); })) : null;
     var q = h('input', { class: 'inp sm', type: 'search', id: 'q-search', placeholder: 'Cari customer / MHC / No. quotation…', value: Q.q });
@@ -1645,12 +1646,15 @@
         var n = base.filter(function (r) { return qMatch(r, f[0]); }).length;
         return h('button', { type: 'button', class: 'fchip' + (Q.filter === f[0] ? ' on' : ''), onclick: function () { Q.filter = f[0]; render(); } }, f[1], n ? h('span', { class: 'fn' }, n) : null);
       })),
-      h('div', { class: 'search-row' }, q, pssrSel));
+      h('div', { class: 'search-row' }, q, pssrSel),
+      nOld ? h('label', { class: 'check small' }, h('input', { type: 'checkbox', id: 'q-old', checked: !!Q.old, onchange: function (e) { Q.old = e.target.checked; render(); } }),
+        'Tampilkan data lama (' + nOld + ') — history sebelum aplikasi, tidak dihitung di notifikasi') : null);
     // rekap per PSSR (Admin PS / SL)
     var recap = null;
     if (!isPssrOnly() && !Q.pssr) {
       var by = {};
       Q.rows.forEach(function (r) {
+        if (r.isOld && !Q.old) return;
         var k = r.pssr || '—', x = by[k] || (by[k] = { name: k, open: 0, openV: 0, due: 0, po: 0, wonV: 0, lose: 0 });
         if (r.open) x.open++; if (r.fu.due) x.due++;
         qSides(r).forEach(function (s) { if (Q_OPEN.indexOf(s.status) >= 0) x.openV += s.val; if (s.status === 'Approved (PO)') x.po++; if (s.status === 'Invoice') x.wonV += s.invVal || s.val; if (s.status === 'Lose') x.lose++; });
