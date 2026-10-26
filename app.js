@@ -155,6 +155,7 @@
     if (can('marInput')) w.push(['marMissing', 'hari kerja MAR belum diisi', null]);
     if (isPssrOnly()) w.push(['myfudue', 'quotation perlu Anda follow up ke customer', 'myfudue']);
     if (can('callCenter')) w.push(['ccDue', 'survei customer perlu ditelepon', 'cc']);
+    if (can('callCenter')) w.push(['callOutDue', 'Call Out (Livelink / Promo) perlu ditelepon', 'callOut']);
     if (can('callCenter')) w.push(['callInWa', 'Call In perlu diteruskan ke WA group', 'callIn']);
     else if (can('callInView')) w.push(['callInOpen', 'permintaan customer (Call In) baru untuk Anda', 'callIn']);
     if (can('complaintView')) w.push(['complaintsOpen', can('callCenter') ? 'keluhan customer belum selesai' : 'keluhan customer perlu Anda tindak lanjuti', 'complaints']);
@@ -285,7 +286,7 @@
     document.body.classList.toggle('is-wide', wide());
     if (!S.session) { app.appendChild(viewLogin()); return; }
     app.appendChild(h('header', { class: 'top', id: 'top' })); renderHeader();
-    var main = h('main', { class: 'main' + (S.view === 'mhc' ? ' with-steps' : '') + (['detail', 'list', 'quotes', 'cc', 'ccSurvey', 'complaints', 'ccRekap', 'callIn', 'callInNew'].indexOf(S.view) >= 0 ? ' office' : '') });
+    var main = h('main', { class: 'main' + (S.view === 'mhc' ? ' with-steps' : '') + (['detail', 'list', 'quotes', 'cc', 'ccSurvey', 'complaints', 'ccRekap', 'callIn', 'callInNew', 'callOut', 'coForm'].indexOf(S.view) >= 0 ? ' office' : '') });
     if (S.session.expired) main.appendChild(h('div', { class: 'banner warn' }, h('div', null, h('b', null, 'Sesi login habis. '), 'Data antrean tetap aman di HP ini.'),
       h('button', { class: 'btn small', onclick: function () { logout(true); } }, 'Login ulang')));
     if (!S.boot) main.appendChild(h('div', { class: 'card center' }, h('p', null, online() ? 'Mengambil data form dari Google Sheet…' : 'Sambungkan ke internet sekali untuk mengunduh data form.'),
@@ -303,6 +304,8 @@
     else if (S.view === 'ccRekap' && can('ccRekap')) main.appendChild(viewCcRekap());
     else if (S.view === 'callIn' && can('callInView')) main.appendChild(viewCallIn());
     else if (S.view === 'callInNew' && can('callCenter') && S.cif) main.appendChild(viewCallInNew());
+    else if (S.view === 'callOut' && can('callCenter')) main.appendChild(viewCallOut());
+    else if (S.view === 'coForm' && can('callCenter') && S.cof && S.co) main.appendChild(viewCoForm());
     else main.appendChild(viewHome());
     app.appendChild(main);
     app.appendChild(viewTabs());
@@ -403,6 +406,7 @@
         can('quoteMonitor') ? (isPssrOnly() ? tile('⇄', 'Quotation saya', (C.myfudue ? C.myfudue + ' perlu di-follow up · ' : '') + 'Follow up customer, catat hasilnya, update Negosiasi / PO / Lose', function () { openQuotes(); }, C.myfudue ? 'accent' : '', C.myfudue)
           : tile('⇄', 'Monitoring Quotation', 'Quotation berjalan per PSSR, umur, nilai & follow up' + (C.fudue ? ' · ' + C.fudue + ' perlu follow up' : ''), function () { openQuotes(); }, '', C.fudue)) : null,
         can('callCenter') ? tile('☏', 'Survei Kepuasan', (C.ccDue ? C.ccDue + ' perlu ditelepon · ' : '') + (C.ccLate ? C.ccLate + ' lewat batas · ' : '') + 'Parts & Service maks. ' + (ccCfg().dueWorkdays || 2) + ' hari kerja setelah invoice', function () { openCc(); }, C.ccDue ? 'accent' : '', C.ccDue) : null,
+        can('callCenter') ? tile('📣', 'Call Out', (C.callOutDue ? C.callOutDue + ' perlu ditelepon · ' : '') + 'Livelink Service Reminder (JCB) & Promotion Program', function () { openCallOut(); }, C.callOutDue ? 'accent' : '', C.callOutDue) : null,
         can('callCenter') ? tile('☎', 'Call In', (C.callInWa ? C.callInWa + ' perlu diteruskan / diinfokan ke WA · ' : '') + 'Catat telepon / WA masuk: Part, Service, Unit, Keluhan, Lainnya', function () { openCallIn(); }, C.callInWa ? 'accent' : '', C.callInWa)
           : can('callInView') ? tile('☎', 'Permintaan Customer', (C.callInOpen ? C.callInOpen + ' untuk Anda · ' : '') + 'Permintaan Part / Service dari Call Center', function () { openCallIn('mine'); }, C.callInOpen ? 'accent' : '', C.callInOpen) : null,
         can('complaintView') ? tile('⚠', 'Keluhan Customer', can('callCenter') ? 'Pantau keluhan yang diteruskan ke cabang sampai Selesai' : (C.complaintsOpen ? C.complaintsOpen + ' perlu tindakan · ' : '') + 'Keluhan dari survei Call Center — isi tindakan sampai Selesai',
@@ -420,7 +424,6 @@
   // Menu form berikutnya: tampil hanya untuk role yang mengisinya (ADMIN_HO selalu)
   var NEXT_MENUS = [
     ['yardInput', '◫', 'Machine Yard Activity', ['MEKANIK', 'SERVICE_LEADER', 'ADMIN_PS']],
-    ['callCenter', '📣', 'Call Out promo & Livelink Service Reminder', ['CALL_CENTER']],
     ['popUpdate', '⟳', 'Update Population', ['ADMIN_PS', 'PSSR']]
   ];
   function hasRole(list) { var R = S.session.user.roles || []; return R.indexOf('ADMIN_HO') >= 0 || list.some(function (r) { return R.indexOf(r) >= 0; }); }
@@ -2729,7 +2732,7 @@
   var CI_TONE = { 'Terbuka': 'bad', 'Diproses': 'wait', 'Selesai': 'ok', 'Perlu diteruskan (WA)': 'bad', 'Diteruskan via WA': 'info', 'Jadi keluhan': 'wait' };
   function fmtDt(s) { return s ? fmtDate(s) + ' ' + String(s).slice(11, 16) : ''; }
   function ciWaText(k) {
-    var lines = ['*CALL IN — ' + k.category.toUpperCase() + '*' + (k.urgent ? ' 🔴 URGENT' : '') + (k.id ? ' (' + k.id + ')' : ''),
+    var lines = ['*CALL IN — ' + k.category.toUpperCase() + '*' + (k.urgent ? ' 🔴 URGENT' : '') + (k.id ? ' (' + k.id + ')' : '') + (k.newCust ? ' ⭐ Customer baru' : ''),
       'Tanggal: ' + (k.date ? fmtDt(k.date) : fmtTime(Date.now())), 'Cabang: ' + k.branch, 'Customer: ' + k.customer,
       'Kontak: ' + [k.contact, k.phone].filter(Boolean).join(' · ')];
     if (k.unit || k.sn) lines.push('Unit: ' + [k.unit, k.sn ? 'SN ' + k.sn : ''].filter(Boolean).join(' '));
@@ -2761,7 +2764,8 @@
     if (!online()) { toast('Butuh koneksi internet', 'warn'); return; }
     C.loading = true; if (S.view === 'callIn') render();
     api('formCallInList', { token: S.session.token }, 60000).then(function (x) {
-      C.loading = false; C.rows = x.rows; if (x.cfg && S.boot) S.boot.callIn = x.cfg;
+      C.loading = false; C.rows = x.rows; C.customers = x.customers || C.customers || []; if (x.cfg && S.boot) S.boot.callIn = x.cfg;
+      if (S.view === 'callInNew') render();
       var st = ciCfg().status || {};
       setCounts(can('callCenter') ? { callInWa: x.rows.filter(function (k) { return k.needWa; }).length } : { callInOpen: x.rows.filter(function (k) { return k.forMe; }).length });
       if (S.view === 'callIn') render();
@@ -2771,13 +2775,16 @@
     S.cif = Object.assign({ source: 'Telepon', category: '', branch: S.session.user.branch !== 'ALL' ? S.session.user.branch : '', customer: '', contact: '', phone: '', unit: '', sn: '', location: '',
       request: '', urgent: false, kcCategory: 'Teknis', doneDirect: false, answer: '', clientId: uid(), saved: null }, prefill || {});
     go('callInNew');
+    if (!S.ci || !S.ci.customers) { if (!S.ci) S.ci = { filter: 'need', cat: '', branch: '', q: '', rows: null, open: {} }; loadCallIn(); }
   }
+  function ciNorm(s) { return String(s || '').toUpperCase().replace(/[.,'"()\-]/g, ' ').replace(/\b(PT|CV|TBK|UD|PD|KOPERASI|KOP)\b/g, ' ').replace(/\s+/g, ' ').trim(); }
   function viewCallInNew() {
     var F = S.cif, cfg = ciCfg(), branches = S.boot.branches || [];
     var back = h('button', { type: 'button', class: 'btn ghost small back', onclick: function () { openCallIn(); } }, '‹ Kembali ke Call In');
     if (F.saved) {
       var k = F.saved;
       return h('div', null, back, h('div', { class: 'card' }, h('h2', null, '✓ Call In ' + k.id + ' tersimpan'),
+        k.newCust ? h('div', { class: 'chips' }, chip('⭐ Customer baru', 'ok')) : null,
         h('p', null, k.category === 'Part' || k.category === 'Service' ? 'Diteruskan ke ' + (k.assignedTo || '(belum ada penerima di cabang ' + k.branch + ' — cek tab Users)') + (k.emailed ? ' · ' + k.emailed + ' email terkirim' : '') + '.'
           : k.category === 'Keluhan' ? 'Dibuat sebagai Keluhan Customer ' + k.complaintId + ' → ' + (k.assignedTo || 'cabang ' + k.branch) + '.'
           : k.status === 'Selesai' ? 'Dicatat sebagai sudah dijawab langsung.' : 'Salin pesan di bawah, kirim ke WA group Call Center, lalu tandai sudah diteruskan.',
@@ -2798,11 +2805,24 @@
       if (opts.required && F.tried && !String(F[k] || '').trim()) el.setAttribute('data-missing', '1');
       return h('div', { class: 'field' + (opts.half ? ' half' : '') }, h('label', { class: 'lbl', for: 'ci-' + k }, label, opts.required ? h('span', { class: 'req' }, ' *') : null), el);
     };
-    var pop = S.boot.population || [];
-    var pick = picker('Cari dari Machine Population (opsional)', pop, function (r) { return [r[3], r[0], r[2], r[4]].join(' '); },
-      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[3] || '-'), ' · ', [r[1], r[2]].filter(Boolean).join(' ')), h('div', { class: 'pick-sub' }, ['SN ' + r[0], r[4], r[8]].filter(Boolean).join(' · '))]; },
-      function (r) { F.customer = r[3] || F.customer; F.unit = [r[1], r[2]].filter(Boolean).join(' '); F.sn = r[0] || ''; F.location = r[4] || F.location; if (r[6] && !F.phone) F.phone = r[6]; if (r[8] && branches.indexOf(r[8]) >= 0) F.branch = r[8]; render(); },
-      'Ketik nama customer / SN / model…');
+    // pencarian: Machine Population + riwayat Call In (customer yang pernah menelepon, termasuk customer baru)
+    var hist = ((S.ci && S.ci.customers) || []).map(function (c) { return [c[4], '', c[3], c[0], c[5], '', c[2], '', c[6], c[1], 'ci', c[7]]; });
+    var pop = hist.concat(S.boot.population || []);
+    var pick = picker('Cari dari Machine Population & riwayat Call In (opsional)', pop, function (r) { return [r[3], r[0], r[2], r[4], r[6], r[9]].join(' '); },
+      function (r) {
+        return r[10] === 'ci' ? [h('div', { class: 'pick-main' }, h('b', null, r[3] || '-'), ' · ', [r[9], r[6]].filter(Boolean).join(' · ')), h('div', { class: 'pick-sub' }, ['☎ Riwayat Call In', r[11] && 'terakhir ' + fmtDate(r[11]), r[2], r[8]].filter(Boolean).join(' · '))]
+          : [h('div', { class: 'pick-main' }, h('b', null, r[3] || '-'), ' · ', [r[1], r[2]].filter(Boolean).join(' ')), h('div', { class: 'pick-sub' }, ['SN ' + r[0], r[4], r[8]].filter(Boolean).join(' · '))];
+      },
+      function (r) {
+        F.customer = r[3] || F.customer; F.unit = [r[1], r[2]].filter(Boolean).join(' ') || F.unit; F.sn = r[0] || F.sn; F.location = r[4] || F.location;
+        if (r[6]) F.phone = r[10] === 'ci' || !F.phone ? r[6] : F.phone; if (r[9]) F.contact = r[9]; if (r[8] && branches.indexOf(r[8]) >= 0) F.branch = r[8]; render();
+      },
+      'Ketik nama customer / telepon / SN / model…');
+    var known = null, isNewCust = false;
+    if (F.customer.trim().length >= 3) {
+      known = {}; pop.forEach(function (r) { known[ciNorm(r[3])] = 1; });
+      isNewCust = !known[ciNorm(F.customer)];
+    }
     var route = F.category === 'Part' ? 'Diteruskan ke Admin PS cabang (email + menu Permintaan Customer), tembusan PSSR cabang.'
       : F.category === 'Service' ? 'Diteruskan ke Service Leader cabang (email + menu Permintaan Customer).'
       : F.category === 'Unit' ? 'Dicatat saja, lalu diteruskan manual ke Branch Manager lewat WA group Call Center (tombol Salin pesan WA).'
@@ -2820,7 +2840,9 @@
       h('select', { class: 'inp', id: 'ci-branch', 'data-missing': F.tried && !F.branch ? '1' : null, onchange: function (e) { F.branch = e.target.value; } },
         h('option', { value: '' }, '— pilih cabang —'), branches.map(function (b) { return h('option', { value: b, selected: F.branch === b }, b); })),
       pick,
-      h('div', { class: 'grid2' }, inp('Customer', 'customer', { required: true }), inp('Contact Person', 'contact', { half: true }), inp('Telepon', 'phone', { required: true, type: 'tel', half: true }),
+      isNewCust ? h('div', { class: 'banner ok col' }, h('b', null, '⭐ Customer baru?'), h('span', null, 'Nama ini belum ada di Machine Population maupun riwayat Call In. Isi data selengkap mungkin. Saat disimpan, Call In ditandai "Customer baru" supaya cabang tahu ada prospek baru.')) : null,
+      h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ci-customer' }, 'Customer', h('span', { class: 'req' }, ' *')),
+        h('input', { class: 'inp', id: 'ci-customer', value: F.customer, autocomplete: 'off', 'data-missing': F.tried && !F.customer.trim() ? '1' : null, oninput: function (e) { F.customer = e.target.value; }, onchange: function () { render(); } })), inp('Contact Person', 'contact', { half: true }), inp('Telepon', 'phone', { required: true, type: 'tel', half: true }),
         inp('Unit (brand / model)', 'unit', { half: true }), inp('Serial No', 'sn', { half: true }), inp('Lokasi', 'location')),
       inp('Permintaan / pesan customer', 'request', { textarea: true, required: true, ph: (cfg.hints || {})[F.category] || 'Tulis permintaan customer' }),
       F.category === 'Part' || F.category === 'Service' ? h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'ci-urgent', checked: F.urgent, onchange: set('urgent') }), 'Urgent (unit breakdown / customer menunggu)') : null,
@@ -2836,7 +2858,8 @@
           location: F.location.trim(), request: F.request.trim(), urgent: !!F.urgent && (F.category === 'Part' || F.category === 'Service'), kcCategory: F.kcCategory, doneDirect: F.category === 'Lainnya' && !!F.doneDirect, answer: F.answer.trim() };
         api('formCallInSave', { token: S.session.token, values: vals, clientId: F.clientId }, 60000).then(function (r) {
           F.busy = false;
-          F.saved = Object.assign({}, vals, { id: r.id, status: r.status, complaintId: r.complaintId, emailed: r.emailed, assignedTo: r.assignedTo, createdBy: S.session.user.name, date: '' });
+          F.saved = Object.assign({}, vals, { id: r.id, status: r.status, complaintId: r.complaintId, emailed: r.emailed, assignedTo: r.assignedTo, createdBy: S.session.user.name, date: '', newCust: !!r.newCust });
+          if (S.ci && S.ci.customers) S.ci.customers.unshift([vals.customer, vals.contact, vals.phone, vals.unit, vals.sn, vals.location, vals.branch, todayISO()]);
           toast('Call In ' + r.id + ' tersimpan', 'ok'); loadCounts(); render(); window.scrollTo(0, 0);
         }).catch(function (e) { F.busy = false; toast(e.message, 'err'); render(); });
       } }, F.busy ? 'Menyimpan…' : 'Simpan Call In'));
@@ -2948,7 +2971,7 @@
       h('button', { type: 'button', class: 'kc-head', onclick: function () { C.open[k.id] = !isOpen; render(); } },
         h('div', { class: 'item-top' }, h('b', null, (CI_ICON[k.category] || '') + ' ' + (k.customer || '-')), chip(k.status === 'Jadi keluhan' && k.kcStatus ? 'Keluhan ' + k.kcStatus : k.status, CI_TONE[k.status === 'Jadi keluhan' && k.kcStatus === 'Selesai' ? 'Selesai' : k.status])),
         h('div', { class: 'muted small' }, [k.id, fmtDt(k.date), k.branch, k.category, k.source].filter(Boolean).join(' · ')),
-        h('div', { class: 'chips' }, k.urgent ? chip('URGENT', 'bad') : null, k.open ? h('span', { class: 'chip' }, k.age + ' hari') : null, k.complaintId ? h('span', { class: 'chip wait' }, k.complaintId) : null,
+        h('div', { class: 'chips' }, k.urgent ? chip('URGENT', 'bad') : null, k.newCust ? chip('⭐ Customer baru', 'ok') : null, k.open ? h('span', { class: 'chip' }, k.age + ' hari') : null, k.complaintId ? h('span', { class: 'chip wait' }, k.complaintId) : null,
           k.infoMe ? chip('Informasi — ditangani SL', 'info') : null,
           can('callCenter') && (k.category === 'Part' || k.category === 'Service') ? chip(k.bmDone ? 'BM ✓ diinfokan' : 'Belum diinfokan ke BM', k.bmDone ? 'ok' : 'bad') : null),
         h('div', { class: 'kc-desc' }, k.request),
@@ -2964,11 +2987,357 @@
         form || (k.open && !k.canHandle && k.status !== 'Jadi keluhan' ? h('p', { class: 'hint' }, (k.infoMe ? 'Informasi untuk Admin PS (mis. siapkan quotation service). ' : 'Hanya dilihat — ') + 'Ditangani & ditutup oleh ' + (k.category === 'Service' ? 'Service Leader cabang' : k.category === 'Part' ? 'Admin PS / PSSR cabang' : 'Call Center') + '.') : null)) : null);
   }
   function exportCallInXlsx(rows) {
-    var out = [['No. Call In', 'Tanggal', 'Masuk via', 'Cabang', 'Kategori', 'Urgent', 'Customer', 'Contact', 'Telepon', 'Unit', 'Serial No', 'Lokasi', 'Permintaan', 'Ditangani', 'CC', 'Status', 'Tindakan', 'No. Keluhan', 'Diteruskan WA', 'Update oleh', 'Update', 'Selesai', 'Waktu selesai (jam)', 'Dicatat oleh']];
+    var out = [['No. Call In', 'Tanggal', 'Masuk via', 'Cabang', 'Kategori', 'Urgent', 'Customer', 'Contact', 'Telepon', 'Unit', 'Serial No', 'Lokasi', 'Permintaan', 'Ditangani', 'CC', 'Status', 'Tindakan', 'No. Keluhan', 'Diteruskan WA', 'Update oleh', 'Update', 'Selesai', 'Waktu selesai (jam)', 'Dicatat oleh', 'Customer baru']];
     rows.forEach(function (k) { out.push([k.id, k.date, k.source, k.branch, k.category, k.urgent ? 'Ya' : '', k.customer, k.contact, k.phone, k.unit, k.sn, k.location, k.request, k.assignedTo, k.cc,
-      k.status === 'Jadi keluhan' && k.kcStatus ? 'Keluhan ' + k.kcStatus : k.status, k.action || k.kcAction || '', k.complaintId, k.waAt, k.updatedBy, k.updatedAt, k.closedAt, k.hours == null ? '' : k.hours, k.createdBy]); });
+      k.status === 'Jadi keluhan' && k.kcStatus ? 'Keluhan ' + k.kcStatus : k.status, k.action || k.kcAction || '', k.complaintId, k.waAt, k.updatedBy, k.updatedAt, k.closedAt, k.hours == null ? '' : k.hours, k.createdBy, k.newCust ? 'Ya' : '']); });
     saveBlob(makeXlsx([{ name: 'Call In', rows: out, widths: [14, 16, 10, 8, 10, 7, 26, 18, 14, 16, 14, 16, 40, 22, 18, 16, 36, 13, 16, 16, 16, 16, 10, 16] }]), 'Call_In_' + S.session.company + '_' + todayISO() + '.xlsx');
     toast('Excel Call In diunduh', 'ok');
+  }
+
+  /* ================= Call Center Tahap 3: Call Out (Livelink Service Reminder & Promotion Program) ================= */
+  function coCfg() { return (S.boot && S.boot.callOut) || { pmStatus: ['Mendekati PM', 'Overdue PM'], pmSoonHours: 50, lvResults: [], promoCategories: ['Unit', 'Parts', 'Service', 'Parts & Service'], promoResults: [], promoReasons: [], channels: ['Telepon', 'WhatsApp'], status: {}, maxAttempts: 3 }; }
+  var CO_TONE = { 'Perlu ditelepon': 'bad', 'Hubungi lagi': 'wait', 'Selesai': 'ok', 'Tidak bisa dihubungi': 'bad' };
+  var BRANCH_NAMES = { BANJARMASIN: 'BJM', SAMARINDA: 'SMD', SAMPIT: 'SPT', PONTIANAK: 'PTK', JAKARTA: 'JKT', SURABAYA: 'SBY', BALIKPAPAN: 'BPP', PALANGKARAYA: 'PKY', 'PALANGKA RAYA': 'PKY', SEMARANG: 'SMG', TAPIN: 'TAPIN', RANTAU: 'TAPIN' };
+  /** teks Customers dari Livelink ("Cabang Pontianak,PT Karya …") → { customer, branch } */
+  function splitLivelinkCustomer(txt) {
+    var br = '', parts = String(txt || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), keep = [];
+    parts.forEach(function (p) { var m = p.match(/^cabang\s+(.+)$/i); if (m) { var code = BRANCH_NAMES[m[1].toUpperCase()] || (S.boot.branches || []).filter(function (b) { return b === m[1].toUpperCase(); })[0]; if (code && !br) br = code; } else keep.push(p); });
+    return { customer: keep.join(', '), branch: br };
+  }
+  function coPickRows() {
+    var hist = ((S.ci && S.ci.customers) || []).map(function (c) { return [c[4], '', c[3], c[0], c[5], '', c[2], '', c[6], c[1], 'ci', c[7]]; });
+    return hist.concat(S.boot.population || []);
+  }
+  function coCustomerPicker(F, label) {
+    var branches = S.boot.branches || [];
+    return picker(label || 'Cari customer dari Population & riwayat Call In (opsional)', coPickRows(), function (r) { return [r[3], r[0], r[2], r[6], r[9]].join(' '); },
+      function (r) {
+        return r[10] === 'ci' ? [h('div', { class: 'pick-main' }, h('b', null, r[3] || '-'), ' · ', [r[9], r[6]].filter(Boolean).join(' · ')), h('div', { class: 'pick-sub' }, ['☎ Riwayat Call In', r[8]].filter(Boolean).join(' · '))]
+          : [h('div', { class: 'pick-main' }, h('b', null, r[3] || '-'), ' · ', [r[1], r[2]].filter(Boolean).join(' ')), h('div', { class: 'pick-sub' }, ['SN ' + r[0], r[4], r[8]].filter(Boolean).join(' · '))];
+      },
+      function (r) {
+        F.customer = r[3] || F.customer; if (r[6]) F.phone = r[6]; if (r[9]) F.contact = r[9]; if (r[8] && branches.indexOf(r[8]) >= 0) F.branch = r[8];
+        if ('sn' in F && r[10] !== 'ci') { F.sn = r[0] || F.sn; F.model = r[2] || F.model; }
+        render();
+      }, 'Ketik nama customer / SN / telepon…');
+  }
+  function coField(F, label, k, opts) {
+    opts = opts || {};
+    var el = opts.textarea ? h('textarea', { class: 'inp', id: 'co-' + k, rows: 2, placeholder: opts.ph || '', oninput: function (e) { F[k] = e.target.value; } }, F[k] || '')
+      : h('input', { class: 'inp', id: 'co-' + k, type: opts.type || 'text', inputmode: opts.num ? 'decimal' : null, value: F[k] == null ? '' : F[k], placeholder: opts.ph || '', autocomplete: 'off',
+          oninput: function (e) { F[k] = e.target.value; }, onchange: opts.onchange || null });
+    if (opts.required && F.tried && !String(F[k] == null ? '' : F[k]).trim()) el.setAttribute('data-missing', '1');
+    return h('div', { class: 'field' + (opts.half ? ' half' : '') }, h('label', { class: 'lbl', for: 'co-' + k }, label, opts.required ? h('span', { class: 'req' }, ' *') : null), el);
+  }
+  function branchSelect(F, id) {
+    return h('select', { class: 'inp', id: id, 'data-missing': F.tried && !F.branch ? '1' : null, onchange: function (e) { F.branch = e.target.value; render(); } },
+      h('option', { value: '' }, '— pilih cabang —'), (S.boot.branches || []).map(function (b) { return h('option', { value: b, selected: F.branch === b }, b); }));
+  }
+  /** isian hasil telepon (dipakai Livelink & Promo) */
+  function coResultBlock(F, results, kind) {
+    var cfg = coCfg();
+    return [h('label', { class: 'lbl' }, 'Hasil telepon', kind === 'lvNew' ? h('span', { class: 'muted' }, ' (kosongkan bila belum menelepon)') : h('span', { class: 'req' }, ' *')),
+      h('div', { class: 'chips', 'data-missing': F.tried && !F.result && kind !== 'lvNew' ? '1' : null }, results.map(function (t) {
+        return h('button', { type: 'button', class: 'fchip' + (F.result === t ? ' on' : ''), onclick: function () { F.result = F.result === t && kind === 'lvNew' ? '' : t; render(); } }, t);
+      })),
+      F.result === 'Tidak tertarik' ? [h('label', { class: 'lbl' }, 'Alasan', h('span', { class: 'req' }, ' *')), h('div', { class: 'chips' }, cfg.promoReasons.map(function (t) {
+        return h('button', { type: 'button', class: 'fchip' + (F.reason === t ? ' on' : ''), onclick: function () { F.reason = t; render(); } }, t); }))] : null,
+      F.result === 'Hubungi lagi' || F.result === 'Tidak bisa dihubungi' ? [h('label', { class: 'lbl' }, 'Telepon lagi (kosong = hari kerja berikutnya 09:00)'),
+        h('input', { class: 'inp', type: 'datetime-local', id: 'co-next', value: F.next || '', onchange: function (e) { F.next = e.target.value; } }),
+        F.attempts != null ? h('p', { class: 'hint' }, 'Percobaan ke-' + (F.attempts + 1) + ' dari ' + cfg.maxAttempts + (F.result === 'Tidak bisa dihubungi' && F.attempts + 1 >= cfg.maxAttempts ? ' — setelah ini status menjadi "Tidak bisa dihubungi".' : '.')) : null] : null,
+      F.result ? coField(F, 'Catatan', 'note', { textarea: true }) : null];
+  }
+
+  function openCallOut(tab) {
+    var C = S.co || (S.co = { tab: 'lv', lvFilter: 'due', pcFilter: 'due', q: '', open: {}, lv: null, promo: null, showEnded: false });
+    if (tab) C.tab = tab;
+    go('callOut'); loadCallOut();
+    if (!S.ci || !S.ci.customers) { if (!S.ci) S.ci = { filter: 'need', cat: '', branch: '', q: '', rows: null, open: {} }; loadCallIn(); }
+  }
+  function loadCallOut() {
+    var C = S.co;
+    if (!online()) { toast('Butuh koneksi internet', 'warn'); return; }
+    C.loading = true; if (S.view === 'callOut') render();
+    Promise.all([api('formLivelinkList', { token: S.session.token }, 60000), api('formPromoList', { token: S.session.token }, 60000)]).then(function (x) {
+      C.loading = false; C.lv = x[0]; C.promo = x[1]; if (S.boot && x[0].cfg) S.boot.callOut = x[0].cfg;
+      setCounts({ callOutDue: x[0].rows.filter(function (k) { return k.due; }).length + x[1].calls.filter(function (k) { return k.due; }).length });
+      if (S.view === 'callOut' || S.view === 'coForm') render();
+    }).catch(function (e) { C.loading = false; if (e.auth) return markExpired(); toast(e.message, 'err'); if (S.view === 'callOut') render(); });
+  }
+  function viewCallOut() {
+    var C = S.co;
+    var tabs = h('div', { class: 'seg co-tabs' }, [['lv', '🔧 Livelink Service Reminder'], ['promo', '📣 Promotion Program']].map(function (t) {
+      return h('button', { type: 'button', class: 'seg-btn' + (C.tab === t[0] ? ' on' : ''), onclick: function () { C.tab = t[0]; render(); } }, t[1]);
+    }));
+    var head = h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, 'Call Out'), h('button', { class: 'btn small ghost', onclick: loadCallOut, disabled: !!C.loading }, C.loading ? 'Memuat…' : '↻')), tabs);
+    if (!C.lv || !C.promo) return h('div', null, head, h('div', { class: 'card center muted' }, C.loading ? 'Memuat…' : h('button', { class: 'btn', onclick: loadCallOut }, 'Tampilkan')));
+    return h('div', null, head, C.tab === 'lv' ? viewLivelink() : viewPromo());
+  }
+  var LV_FILTERS = [['due', 'Perlu ditelepon'], ['open', 'Berjalan'], ['service', 'Jadi Call In Service'], ['done', 'Selesai'], ['all', 'Semua']];
+  function lvMatch(k, f) { return f === 'due' ? k.due : f === 'open' ? k.open : f === 'service' ? !!k.callInId : f === 'done' ? !k.open : true; }
+  function viewLivelink() {
+    var C = S.co, L = C.lv, ql = C.q.toLowerCase(), month = todayISO().slice(0, 7);
+    var rows = L.rows.filter(function (k) { return lvMatch(k, C.lvFilter) && (!ql || [k.id, k.customer, k.sn, k.model, k.phone, k.branch].join(' ').toLowerCase().indexOf(ql) >= 0); });
+    var m = L.rows.filter(function (k) { return k.date.slice(0, 7) === month; });
+    var kpi = function (label, big, sub, tone, f) { return h('button', { type: 'button', class: 'kpi ' + (tone || '') + (C.lvFilter === f ? ' on' : ''), onclick: function () { if (f) { C.lvFilter = f; render(); } } }, h('span', { class: 'kpi-l' }, label), h('b', { class: 'kpi-v' }, big), h('span', { class: 'kpi-s' }, sub)); };
+    var nDue = L.rows.filter(function (k) { return k.due; }).length;
+    var q = h('input', { class: 'inp sm', type: 'search', id: 'lv-search', placeholder: 'Cari SN / customer / model…', value: C.q });
+    q.addEventListener('input', debounce(function () { C.q = q.value.trim(); render(); var el = document.getElementById('lv-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 300));
+    var top = h('div', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h3', null, 'Livelink Service Reminder (JCB)'), h('button', { class: 'btn small primary', onclick: function () { newLvReminder(); } }, '＋ Catat Reminder')),
+      h('p', { class: 'hint' }, 'Lihat web Livelink JCB: unit 🟡 kuning (≤ ' + coCfg().pmSoonHours + ' jam ke PM Service) dan 🔴 merah (overdue PM). Catat di sini, lalu telepon customer. Kalau customer mau service → otomatis menjadi Call In Service ke SL cabang.'),
+      h('div', { class: 'kpis' },
+        kpi('Perlu ditelepon', String(nDue), 'reminder baru / jadwal telepon ulang tiba', nDue ? 'bad' : 'ok', 'due'),
+        kpi('Berjalan', String(L.rows.filter(function (k) { return k.open; }).length), 'belum ada hasil akhir', '', 'open'),
+        kpi('Bulan ini', String(m.length), m.filter(function (k) { return k.pm === 'Overdue PM'; }).length + ' overdue · ' + m.filter(function (k) { return k.pm !== 'Overdue PM'; }).length + ' mendekati PM', ''),
+        kpi('Jadi Call In Service', String(m.filter(function (k) { return k.callInId; }).length), 'bulan ini' + (m.length ? ' · ' + Math.round(m.filter(function (k) { return k.callInId; }).length / m.length * 100) + '%' : ''), 'ok', 'service')),
+      h('div', { class: 'chips filt' }, LV_FILTERS.map(function (f) { var n = L.rows.filter(function (k) { return lvMatch(k, f[0]); }).length;
+        return h('button', { type: 'button', class: 'fchip' + (C.lvFilter === f[0] ? ' on' : ''), onclick: function () { C.lvFilter = f[0]; render(); } }, f[1], n && f[0] === 'due' ? h('span', { class: 'fn' }, n) : null); })),
+      h('div', { class: 'search-row' }, q, h('button', { class: 'btn small', onclick: function () { exportLivelinkXlsx(rows); } }, '⬇ Excel')));
+    var body = !rows.length ? h('div', { class: 'card center muted' }, C.lvFilter === 'due' ? 'Tidak ada reminder yang perlu ditelepon. 👍' : 'Tidak ada data.') : h('div', { class: 'qlist' }, rows.map(lvCard));
+    return h('div', null, top, body);
+  }
+  function lvHistoryList(sn, exceptId) {
+    var list = ((S.co.lv && S.co.lv.history) || {})[String(sn || '').trim().toUpperCase()] || [];
+    list = list.filter(function (x) { return x.id !== exceptId; });
+    if (!list.length) return null;
+    return h('div', { class: 'lv-hist' }, h('b', { class: 'small' }, '📋 Unit ini pernah di-reminder ' + list.length + '×'),
+      list.map(function (x) { return h('div', { class: 'small muted' }, [fmtDate(x.date), x.pm, 'HM ' + fmtNum(x.hm), x.result, x.callInId, x.by].filter(Boolean).join(' · ')); }));
+  }
+  function lvCard(k) {
+    var C = S.co, isOpen = !!C.open[k.id];
+    var F = C.edit && C.edit.id === k.id ? C.edit : null;
+    if (isOpen && k.open && !F) F = C.edit = { id: k.id, result: '', note: '', next: '', contact: k.contact, phone: k.phone, attempts: k.attempts, clientId: uid() };
+    var form = isOpen && k.open ? h('div', { class: 'kc-form' },
+      h('div', { class: 'grid2' }, coField(F, 'Contact Person', 'contact', { half: true }), coField(F, 'Telepon', 'phone', { half: true, type: 'tel', required: true })),
+      F.phone ? h('div', { class: 'row-btns' }, h('a', { class: 'btn small primary', href: 'tel:' + telOf(F.phone) }, '☎ Telepon ' + F.phone), waOf(F.phone) ? h('a', { class: 'btn small', href: waOf(F.phone), target: '_blank', rel: 'noopener' }, 'WhatsApp') : null) : null,
+      coResultBlock(F, coCfg().lvResults, 'lv'),
+      F.result === 'Mau dijadwalkan service' ? h('p', { class: 'hint ok-text' }, '→ Dibuat Call In Service ke Service Leader ' + k.branch + (k.pm === 'Overdue PM' ? ' (URGENT, overdue PM)' : '') + ', tembusan Admin PS. Jangan lupa infokan ke BM lewat WA group.') : null,
+      h('button', { class: 'btn primary', disabled: !!F.busy, onclick: function () {
+        F.tried = true; if (!F.result) { render(); return toast('Pilih hasil telepon', 'err'); }
+        if (!String(F.phone || '').trim()) { render(); return toast('Isi nomor telepon', 'err'); }
+        F.busy = true; render();
+        api('formLivelinkSave', { token: S.session.token, id: k.id, clientId: F.clientId, values: { result: F.result, note: F.note, next: F.next, contact: F.contact, phone: F.phone } }).then(function (r) {
+          C.edit = null; toast(k.id + ' · ' + r.status + (r.callInId ? ' · Call In ' + r.callInId + ' → ' + (r.assignedTo || 'SL cabang') : ''), 'ok'); loadCallOut(); loadCounts();
+          if (r.callInId) coCallInDone(r.callInId);
+        }).catch(function (e) { F.busy = false; toast(e.message, 'err'); render(); });
+      } }, F.busy ? 'Menyimpan…' : 'Simpan hasil telepon')) : null;
+    return h('div', { class: 'card item kcitem' + (k.due ? ' due' : '') },
+      h('button', { type: 'button', class: 'kc-head', onclick: function () { C.open[k.id] = !isOpen; if (isOpen) C.edit = null; render(); } },
+        h('div', { class: 'item-top' }, h('b', null, k.customer || '-'), chip(k.status, CO_TONE[k.status])),
+        h('div', { class: 'muted small' }, [k.id, fmtDate(k.date), k.branch].join(' · ')),
+        h('div', { class: 'chips' }, chip(k.pm === 'Overdue PM' ? '🔴 Overdue PM' : '🟡 Mendekati PM', k.pm === 'Overdue PM' ? 'bad' : 'wait'), h('span', { class: 'chip' }, k.model + ' · SN ' + k.sn),
+          h('span', { class: 'chip' }, 'HM ' + fmtNum(k.hm) + (k.countdown !== '' ? ' · sisa ' + k.countdown + ' jam' : '')),
+          k.attempts ? h('span', { class: 'chip' }, k.attempts + '× telepon') : null, k.next && k.open ? h('span', { class: 'chip info' }, 'Telepon lagi ' + fmtDt(k.next)) : null,
+          k.callInId ? h('span', { class: 'chip ok' }, '→ ' + k.callInId) : null),
+        k.result ? h('div', { class: 'small' }, 'Hasil: ' + k.result + (k.note ? ' · ' + k.note : '')) : null),
+      isOpen ? h('div', { class: 'kc-more' }, kvRow('Kontak', [k.contact, k.phone].filter(Boolean).join(' · ')), kvRow('Dicatat oleh', k.createdBy),
+        k.history ? h('pre', { class: 'log' }, k.history) : null, lvHistoryList(k.sn, k.id), form,
+        k.callInId ? h('div', { class: 'row-btns' }, h('button', { class: 'btn small', onclick: function () { S.ci = S.ci || { filter: 'all', cat: '', branch: '', q: '', rows: null, open: {} }; S.ci.q = k.callInId; S.ci.open[k.callInId] = true; openCallIn('all'); } }, 'Lihat Call In ' + k.callInId)) : null) : null);
+  }
+  /** setelah Call Out menghasilkan Call In: ingatkan untuk menginfokan ke BM (Part / Service) */
+  function coCallInDone(id) {
+    S.coLastCallIn = id;
+    setTimeout(function () { if (confirm('Call In ' + id + ' sudah dibuat dan dikirim ke cabang.\n\nBuka sekarang untuk menyalin pesan WA & menandai "Sudah diinfokan ke BM"?')) {
+      S.ci = S.ci || { filter: 'all', cat: '', branch: '', q: '', rows: null, open: {} }; S.ci.q = id; S.ci.open[id] = true; openCallIn('all'); } }, 300);
+  }
+  function newLvReminder() {
+    S.cof = { kind: 'lv', date: todayISO(), branch: '', customer: '', sn: '', model: '', hm: '', countdown: '', pm: '', contact: '', phone: '', result: '', note: '', next: '', clientId: uid() };
+    go('coForm');
+  }
+  function viewCoForm() {
+    var F = S.cof, cfg = coCfg();
+    var back = h('button', { type: 'button', class: 'btn ghost small back', onclick: function () { openCallOut(); } }, '‹ Kembali ke Call Out');
+    if (F.kind === 'lv') {
+      var pop = S.boot.population || [];
+      var snHit = F.sn.trim().length >= 4 ? pop.filter(function (r) { return String(r[0]).toUpperCase() === F.sn.trim().toUpperCase(); })[0] : null;
+      var openDup = F.sn.trim() ? ((S.co.lv && S.co.lv.rows) || []).filter(function (k) { return k.open && k.sn.toUpperCase() === F.sn.trim().toUpperCase(); })[0] : null;
+      var form = h('div', { class: 'card' }, h('h2', null, 'Catat Livelink Service Reminder'),
+        h('div', { class: 'grid2' }, coField(F, 'Tanggal reminder', 'date', { type: 'date', half: true, required: true }),
+          h('div', { class: 'field half' }, h('label', { class: 'lbl', for: 'lv-branch' }, 'Cabang', h('span', { class: 'req' }, ' *')), branchSelect(F, 'lv-branch'))),
+        coField(F, 'Serial Number unit', 'sn', { required: true, ph: 'mis. 3193439', onchange: function () {
+          var hit = (S.boot.population || []).filter(function (r) { return String(r[0]).toUpperCase() === F.sn.trim().toUpperCase(); })[0];
+          if (hit) { if (!F.customer) F.customer = hit[3]; if (!F.model) F.model = hit[2]; if (!F.phone && hit[6]) F.phone = hit[6]; if (!F.branch && hit[8]) F.branch = hit[8]; }
+          render(); } }),
+        snHit ? h('p', { class: 'hint ok-text' }, '✓ SN ditemukan di Machine Population: ' + [snHit[3], snHit[1], snHit[2], snHit[8]].filter(Boolean).join(' · ')) : null,
+        openDup ? h('div', { class: 'banner bad col' }, h('b', null, 'SN ini masih punya reminder berjalan (' + openDup.id + ', ' + fmtDate(openDup.date) + ').'), h('span', null, 'Isi hasil telepon di reminder itu saja, tidak perlu dicatat ulang.')) : null,
+        F.sn.trim() ? lvHistoryList(F.sn) : null,
+        coField(F, 'Nama Customer (tempel dari kolom Customers Livelink juga bisa)', 'customer', { required: true, onchange: function () {
+          var x = splitLivelinkCustomer(F.customer); if (x.branch) { F.customer = x.customer; F.branch = x.branch; } render(); } }),
+        h('div', { class: 'grid2' }, coField(F, 'Model', 'model', { half: true, required: true, ph: '3DX / 3CX / JS 215…' }), coField(F, 'HM Unit', 'hm', { half: true, num: true, required: true, ph: 'Total machine life hours' }),
+          coField(F, 'Sisa jam ke PM', 'countdown', { half: true, num: true, ph: 'Service engine hours countdown' })),
+        h('label', { class: 'lbl' }, 'Status di Livelink', h('span', { class: 'req' }, ' *')),
+        h('div', { class: 'seg pm-seg', 'data-missing': F.tried && !F.pm ? '1' : null }, cfg.pmStatus.map(function (p) {
+          return h('button', { type: 'button', class: 'seg-btn' + (F.pm === p ? ' on ' + (p === 'Overdue PM' ? 'pm-red' : 'pm-yellow') : ''), onclick: function () { F.pm = p; render(); } }, p === 'Overdue PM' ? '🔴 Overdue PM (merah)' : '🟡 Mendekati PM (kuning)');
+        })),
+        h('div', { class: 'grid2' }, coField(F, 'Contact Person', 'contact', { half: true }), coField(F, 'Telepon', 'phone', { half: true, type: 'tel', required: !!F.result })),
+        coCustomerPicker(F, 'Cari kontak dari Population / riwayat Call In (opsional)'),
+        coResultBlock(F, cfg.lvResults, 'lvNew'),
+        h('button', { class: 'btn primary block', id: 'lv-save', disabled: !!F.busy || !!openDup, onclick: function () {
+          F.tried = true;
+          var miss = [!F.date && 'Tanggal', !F.branch && 'Cabang', !F.sn.trim() && 'SN', !F.customer.trim() && 'Customer', !F.model.trim() && 'Model', String(F.hm).trim() === '' && 'HM', !F.pm && 'Status PM', F.result && !F.phone.trim() && 'Telepon'].filter(Boolean);
+          if (miss.length) { render(); markBad(); return toast('Belum diisi: ' + miss.join(', '), 'err'); }
+          F.busy = true; render();
+          api('formLivelinkSave', { token: S.session.token, clientId: F.clientId, values: F }).then(function (r) {
+            toast('Reminder ' + r.id + ' tersimpan · ' + r.status + (r.callInId ? ' · Call In ' + r.callInId : ''), 'ok'); loadCounts(); S.co.lvFilter = r.status === 'Selesai' ? 'all' : 'open'; openCallOut('lv');
+            if (r.callInId) coCallInDone(r.callInId);
+          }).catch(function (e) { F.busy = false; toast(e.message, 'err'); render(); });
+        } }, F.busy ? 'Menyimpan…' : F.result ? 'Simpan reminder & hasil telepon' : 'Simpan reminder (telepon nanti)'));
+      return h('div', null, back, form);
+    }
+    if (F.kind === 'program') return h('div', null, back, programForm(F));
+    return h('div', null, back, promoCallForm(F));
+  }
+
+  /* ---------- Promotion Program ---------- */
+  function newProgram(p) {
+    S.cof = p ? { kind: 'program', id: p.id, name: p.name, category: p.category, start: p.start, end: p.end, branches: p.branches === 'ALL' ? [] : p.branches.split(/,\s*/), benefit: p.benefit, link: p.link }
+      : { kind: 'program', name: '', category: '', start: todayISO(), end: '', branches: [], benefit: '', link: '' };
+    go('coForm');
+  }
+  function programForm(F) {
+    var cfg = coCfg(), all = S.boot.branches || [];
+    return h('div', { class: 'card' }, h('h2', null, F.id ? 'Ubah Promo Program ' + F.id : 'Promo Program baru'),
+      h('p', { class: 'hint' }, 'Program dari Dept. Desain & Social Media. Diisi sekali, lalu dipilih saat menelepon customer.'),
+      coField(F, 'Nama Promo Program', 'name', { required: true }),
+      h('label', { class: 'lbl' }, 'Kategori', h('span', { class: 'req' }, ' *')),
+      h('div', { class: 'chips', 'data-missing': F.tried && !F.category ? '1' : null }, cfg.promoCategories.map(function (c) { return h('button', { type: 'button', class: 'fchip big' + (F.category === c ? ' on' : ''), onclick: function () { F.category = c; render(); } }, c); })),
+      h('div', { class: 'grid2' }, coField(F, 'Berlaku mulai', 'start', { type: 'date', half: true, required: true }), coField(F, 'Berlaku sampai', 'end', { type: 'date', half: true, required: true })),
+      h('label', { class: 'lbl' }, 'Cabang yang berlaku', h('span', { class: 'muted' }, ' (tidak dipilih = semua cabang)')),
+      h('div', { class: 'chips' }, all.map(function (b) { var on = F.branches.indexOf(b) >= 0; return h('button', { type: 'button', class: 'fchip' + (on ? ' on' : ''), onclick: function () { if (on) F.branches = F.branches.filter(function (x) { return x !== b; }); else F.branches.push(b); render(); } }, b); })),
+      coField(F, 'Isi / benefit promo', 'benefit', { textarea: true, ph: 'mis. Diskon 15% filter kit + gratis jasa ganti oli' }),
+      coField(F, 'Link materi / flyer (opsional)', 'link', { ph: 'https://… (Google Drive / Instagram)' }),
+      h('button', { class: 'btn primary block', disabled: !!F.busy, onclick: function () {
+        F.tried = true;
+        var miss = [!F.name.trim() && 'Nama', !F.category && 'Kategori', !F.start && 'Mulai', !F.end && 'Sampai'].filter(Boolean);
+        if (miss.length) { render(); markBad(); return toast('Belum diisi: ' + miss.join(', '), 'err'); }
+        F.busy = true; render();
+        api('formPromoSaveProgram', { token: S.session.token, id: F.id || '', values: F, clientId: uid() }).then(function (r) { toast('Program ' + r.id + ' tersimpan', 'ok'); openCallOut('promo'); })
+          .catch(function (e) { F.busy = false; toast(e.message, 'err'); render(); });
+      } }, F.busy ? 'Menyimpan…' : 'Simpan Program'));
+  }
+  function newPromoCall(p, again) {
+    S.cof = again ? { kind: 'promoCall', id: again.id, again: again, programId: again.programId, branch: again.branch, customer: again.customer, contact: again.contact, phone: again.phone, channel: again.channel || 'Telepon',
+                      result: '', reason: '', interest: '', note: '', next: '', attempts: again.attempts, clientId: uid() }
+      : { kind: 'promoCall', programId: p ? p.id : '', branch: '', customer: '', contact: '', phone: '', channel: 'Telepon', result: '', reason: '', interest: '', unit: '', sn: '', note: '', next: '', clientId: uid() };
+    go('coForm');
+  }
+  function promoCallForm(F) {
+    var cfg = coCfg(), progs = ((S.co.promo && S.co.promo.programs) || []).filter(function (p) { return p.active || p.id === F.programId; });
+    var p = progs.filter(function (x) { return x.id === F.programId; })[0];
+    var branchOk = !p || !F.branch || p.branches === 'ALL' || p.branches.split(/,\s*/).indexOf(F.branch) >= 0;
+    var known = {}; coPickRows().forEach(function (r) { known[ciNorm(r[3])] = 1; });
+    var isNew = !F.again && F.customer.trim().length >= 3 && !known[ciNorm(F.customer)];
+    var A = F.again;
+    return h('div', { class: 'card' }, h('h2', null, A ? 'Telepon ulang ' + A.id : 'Catat telepon Promo'),
+      h('label', { class: 'lbl' }, 'Promo Program', h('span', { class: 'req' }, ' *')),
+      A ? h('p', null, h('b', null, A.program)) : h('select', { class: 'inp', id: 'pc-program', 'data-missing': F.tried && !F.programId ? '1' : null, onchange: function (e) { F.programId = e.target.value; render(); } },
+        h('option', { value: '' }, progs.length ? '— pilih promo yang berlaku —' : '(belum ada promo yang berlaku — buat dulu di tab Promotion Program)'),
+        progs.map(function (x) { return h('option', { value: x.id, selected: x.id === F.programId }, x.name + ' · ' + x.category + ' · s/d ' + fmtDate(x.end)); })),
+      p ? h('div', { class: 'promo-box' }, h('div', { class: 'chips' }, chip(p.category, 'info'), h('span', { class: 'chip' }, fmtDate(p.start) + ' – ' + fmtDate(p.end)), h('span', { class: 'chip' }, p.branches === 'ALL' ? 'Semua cabang' : p.branches)),
+        p.benefit ? h('div', { class: 'small' }, p.benefit) : null, p.link ? h('a', { class: 'small', href: p.link, target: '_blank', rel: 'noopener' }, '🔗 Buka materi / flyer') : null) : null,
+      A ? null : [coCustomerPicker(F),
+        isNew ? h('p', { class: 'hint ok-text' }, '⭐ Customer baru — belum ada di Population / riwayat Call In.') : null,
+        coField(F, 'Nama Customer', 'customer', { required: true, onchange: function () { render(); } }),
+        h('label', { class: 'lbl' }, 'Cabang', h('span', { class: 'req' }, ' *')), branchSelect(F, 'pc-branch'),
+        !branchOk ? h('p', { class: 'hint err-text' }, 'Promo ini hanya berlaku di cabang ' + p.branches + '.') : null],
+      h('div', { class: 'grid2' }, coField(F, 'Contact Person', 'contact', { half: true }), coField(F, 'Telepon', 'phone', { half: true, type: 'tel', required: true })),
+      h('label', { class: 'lbl' }, 'Dihubungi via'), segmented(cfg.channels, F.channel, function (v) { F.channel = v; }),
+      F.phone ? h('div', { class: 'row-btns' }, h('a', { class: 'btn small primary', href: 'tel:' + telOf(F.phone) }, '☎ Telepon'),
+        waOf(F.phone) ? h('a', { class: 'btn small', href: waOf(F.phone) + (p ? '?text=' + encodeURIComponent('Halo ' + (F.contact || 'Bapak/Ibu') + ', kami dari ' + S.session.company + ' ingin menginformasikan promo "' + p.name + '"' + (p.benefit ? ': ' + p.benefit : '') + ', berlaku sampai ' + fmtDate(p.end) + '.' + (p.link ? ' Info lengkap: ' + p.link : '')) : ''), target: '_blank', rel: 'noopener' }, 'Kirim promo via WA') : null) : null,
+      coResultBlock(F, cfg.promoResults, 'pc'),
+      F.result === 'Tertarik' && p && p.category === 'Parts & Service' ? [h('label', { class: 'lbl' }, 'Tertarik untuk', h('span', { class: 'req' }, ' *')), segmented(['Part', 'Service'], F.interest, function (v) { F.interest = v; render(); })] : null,
+      F.result === 'Tertarik' && p ? [h('p', { class: 'hint ok-text' }, '→ Otomatis menjadi Call In ' + (p.category === 'Parts' ? 'Part' : p.category === 'Parts & Service' ? (F.interest || 'Part / Service') : p.category) + ' ke cabang ' + (F.branch || '') + ', mengikuti alur Call In (email, notifikasi, info BM).'),
+        A ? null : h('div', { class: 'grid2' }, coField(F, 'Unit (opsional)', 'unit', { half: true }), coField(F, 'Serial No (opsional)', 'sn', { half: true }))] : null,
+      h('button', { class: 'btn primary block', id: 'pc-save', disabled: !!F.busy || !branchOk, onclick: function () {
+        F.tried = true;
+        var miss = [!F.programId && 'Promo', !A && !F.customer.trim() && 'Customer', !A && !F.branch && 'Cabang', !F.phone.trim() && 'Telepon', !F.result && 'Hasil telepon',
+          F.result === 'Tidak tertarik' && !F.reason && 'Alasan', F.result === 'Tertarik' && p && p.category === 'Parts & Service' && !F.interest && 'Tertarik untuk'].filter(Boolean);
+        if (miss.length) { render(); markBad(); return toast('Belum diisi: ' + miss.join(', '), 'err'); }
+        F.busy = true; render();
+        api('formPromoCall', { token: S.session.token, id: A ? A.id : '', clientId: F.clientId, values: F }, 60000).then(function (r) {
+          toast(r.id + ' · ' + r.status + (r.callInId ? ' · Call In ' + r.callInId + ' → ' + (r.assignedTo || 'cabang') : ''), 'ok'); loadCounts(); openCallOut('promo');
+          if (r.callInId && r.callInStatus !== 'Perlu diteruskan (WA)') coCallInDone(r.callInId);
+          else if (r.callInId) coCallInDone(r.callInId);
+        }).catch(function (e) { F.busy = false; toast(e.message, 'err'); render(); });
+      } }, F.busy ? 'Menyimpan…' : 'Simpan hasil telepon'));
+  }
+  var PC_FILTERS = [['due', 'Perlu ditelepon ulang'], ['Tertarik', 'Tertarik'], ['Tidak tertarik', 'Tidak tertarik'], ['fail', 'Tidak bisa dihubungi'], ['all', 'Semua']];
+  function pcMatch(k, f) { return f === 'due' ? k.due : f === 'fail' ? k.status === 'Tidak bisa dihubungi' : f === 'all' ? true : k.result === f && !k.open; }
+  function promoAgg(calls) {
+    var a = { n: calls.length, yes: 0, no: 0, fail: 0, again: 0, reasons: {} };
+    calls.forEach(function (k) { if (k.result === 'Tertarik') a.yes++; else if (k.result === 'Tidak tertarik') { a.no++; a.reasons[k.reason] = (a.reasons[k.reason] || 0) + 1; } else if (k.status === 'Tidak bisa dihubungi') a.fail++; else if (k.open) a.again++; });
+    a.reached = a.yes + a.no; a.rate = a.reached ? Math.round(a.yes / a.reached * 100) : null;
+    return a;
+  }
+  function viewPromo() {
+    var C = S.co, P = C.promo, ql = C.q.toLowerCase();
+    var progs = P.programs.filter(function (p) { return C.showEnded || p.active || p.upcoming; });
+    var calls = P.calls.filter(function (k) { return (!C.prog || k.programId === C.prog) && pcMatch(k, C.pcFilter) && (!ql || [k.id, k.customer, k.phone, k.program, k.branch].join(' ').toLowerCase().indexOf(ql) >= 0); });
+    var progCard = function (p) {
+      var a = promoAgg(P.calls.filter(function (k) { return k.programId === p.id; }));
+      return h('div', { class: 'card item promo-card' + (C.prog === p.id ? ' on' : '') },
+        h('div', { class: 'item-top' }, h('b', null, p.name), chip(p.active ? 'Berlaku' : p.upcoming ? 'Akan datang' : 'Berakhir', p.active ? 'ok' : p.upcoming ? 'info' : '')),
+        h('div', { class: 'chips' }, chip(p.category, 'info'), h('span', { class: 'chip' }, fmtDate(p.start) + ' – ' + fmtDate(p.end)), h('span', { class: 'chip' }, p.branches === 'ALL' ? 'Semua cabang' : p.branches)),
+        p.benefit ? h('div', { class: 'small' }, p.benefit) : null,
+        h('div', { class: 'small muted' }, a.n + ' dihubungi · ' + a.yes + ' tertarik' + (a.rate != null ? ' (' + a.rate + '%)' : '') + ' · ' + a.no + ' tidak tertarik' + (a.again ? ' · ' + a.again + ' hubungi lagi' : '')),
+        h('div', { class: 'row-btns' }, p.active ? h('button', { class: 'btn small primary', onclick: function () { newPromoCall(p); } }, '☎ Catat telepon') : null,
+          h('button', { class: 'btn small', onclick: function () { C.prog = C.prog === p.id ? '' : p.id; C.pcFilter = 'all'; render(); } }, C.prog === p.id ? 'Semua program' : 'Lihat telepon'),
+          p.link ? h('a', { class: 'btn small', href: p.link, target: '_blank', rel: 'noopener' }, '🔗 Materi') : null,
+          h('button', { class: 'btn small ghost', onclick: function () { newProgram(p); } }, 'Ubah')));
+    };
+    var nEnded = P.programs.length - P.programs.filter(function (p) { return p.active || p.upcoming; }).length;
+    var top = h('div', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h3', null, 'Promotion Program'), h('div', { class: 'row-btns' }, h('button', { class: 'btn small', onclick: function () { newProgram(); } }, '＋ Program baru'),
+        h('button', { class: 'btn small primary', onclick: function () { newPromoCall(); } }, '☎ Catat telepon promo'))),
+      h('p', { class: 'hint' }, 'Program dari Dept. Desain & Social Media. Setelah promo di-share ke customer, catat hasil teleponnya. Customer Tertarik → otomatis menjadi Call In ke cabang.'),
+      nEnded ? h('label', { class: 'check small' }, h('input', { type: 'checkbox', checked: !!C.showEnded, onchange: function (e) { C.showEnded = e.target.checked; render(); } }), 'Tampilkan program yang sudah berakhir (' + nEnded + ')') : null);
+    var plist = progs.length ? h('div', { class: 'qlist' }, progs.map(progCard)) : h('div', { class: 'card center muted' }, 'Belum ada promo program yang berlaku. Klik "＋ Program baru".');
+    // rekap per program
+    var recap = P.programs.length ? h('details', { class: 'card recap', open: wide() }, h('summary', null, 'Rekap per program'),
+      h('div', { class: 'tblwrap' }, h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ['Program', 'Kategori', 'Periode', 'Dihubungi', 'Tertarik', '% tertarik', 'Tidak tertarik', 'Alasan', 'Tidak terhubung', 'Hubungi lagi'].map(function (t) { return h('th', null, t); }))),
+        h('tbody', null, P.programs.map(function (p) {
+          var a = promoAgg(P.calls.filter(function (k) { return k.programId === p.id; }));
+          return h('tr', null, h('td', null, h('b', null, p.name)), h('td', null, p.category), h('td', { class: 'small' }, fmtDate(p.start) + ' – ' + fmtDate(p.end)), h('td', { class: 'num' }, a.n), h('td', { class: 'num' }, a.yes),
+            h('td', { class: 'num' }, a.rate == null ? '—' : a.rate + '%'), h('td', { class: 'num' }, a.no), h('td', { class: 'small' }, Object.keys(a.reasons).map(function (r) { return r + ' ' + a.reasons[r]; }).join(', ') || '—'),
+            h('td', { class: 'num' }, a.fail), h('td', { class: 'num' }, a.again));
+        }))))) : null;
+    var q = h('input', { class: 'inp sm', type: 'search', id: 'pc-search', placeholder: 'Cari customer / telepon / program…', value: C.q });
+    q.addEventListener('input', debounce(function () { C.q = q.value.trim(); render(); var el = document.getElementById('pc-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 300));
+    var base = P.calls.filter(function (k) { return !C.prog || k.programId === C.prog; });
+    var callHead = h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h3', null, 'Telepon promo' + (C.prog ? ' · ' + ((P.programs.filter(function (p) { return p.id === C.prog; })[0] || {}).name || '') : '')),
+        h('button', { class: 'btn small', onclick: function () { exportPromoXlsx(); } }, '⬇ Excel')),
+      h('div', { class: 'chips filt' }, PC_FILTERS.map(function (f) { var n = base.filter(function (k) { return pcMatch(k, f[0]); }).length;
+        return h('button', { type: 'button', class: 'fchip' + (C.pcFilter === f[0] ? ' on' : ''), onclick: function () { C.pcFilter = f[0]; render(); } }, f[1], n && f[0] === 'due' ? h('span', { class: 'fn' }, n) : n && f[0] !== 'all' ? h('span', { class: 'fn muted-n' }, n) : null); })),
+      h('div', { class: 'search-row' }, q));
+    var clist = !calls.length ? h('div', { class: 'card center muted' }, C.pcFilter === 'due' ? 'Tidak ada yang perlu ditelepon ulang. 👍' : 'Tidak ada data.') : h('div', { class: 'qlist' }, calls.map(function (k) {
+      return h('div', { class: 'card item' + (k.due ? ' due' : '') },
+        h('div', { class: 'item-top' }, h('b', null, k.customer), chip(k.open ? 'Hubungi lagi' : k.status === 'Tidak bisa dihubungi' ? k.status : k.result, k.result === 'Tertarik' ? 'ok' : k.open ? 'wait' : k.result === 'Tidak tertarik' ? '' : 'bad')),
+        h('div', { class: 'muted small' }, [k.id, fmtDt(k.date), k.branch, k.program, k.channel].filter(Boolean).join(' · ')),
+        h('div', { class: 'chips' }, k.newCust ? chip('⭐ Customer baru', 'ok') : null, k.reason ? h('span', { class: 'chip' }, 'Alasan: ' + k.reason) : null, k.attempts ? h('span', { class: 'chip' }, k.attempts + '× telepon') : null,
+          k.next && k.open ? h('span', { class: 'chip info' }, 'Telepon lagi ' + fmtDt(k.next)) : null, k.callInId ? h('span', { class: 'chip ok' }, '→ ' + k.callInId + (k.interest ? ' (' + k.interest + ')' : '')) : null),
+        k.note ? h('div', { class: 'small' }, k.note) : null,
+        h('div', { class: 'row-btns' }, k.phone ? h('a', { class: 'btn small', href: 'tel:' + telOf(k.phone) }, '☎ ' + k.phone) : null,
+          k.open ? h('button', { class: 'btn small primary', onclick: function () { newPromoCall(null, k); } }, 'Isi hasil telepon ulang') : null,
+          k.callInId ? h('button', { class: 'btn small', onclick: function () { S.ci = S.ci || { filter: 'all', cat: '', branch: '', q: '', rows: null, open: {} }; S.ci.q = k.callInId; S.ci.open[k.callInId] = true; openCallIn('all'); } }, 'Lihat Call In') : null));
+    }));
+    return h('div', null, top, plist, recap, callHead, clist);
+  }
+  function exportLivelinkXlsx(rows) {
+    var out = [['No. Reminder', 'Tanggal', 'Cabang', 'Customer', 'Contact', 'Telepon', 'Serial No', 'Model', 'HM', 'Sisa jam ke PM', 'Status PM', 'Status', 'Hasil', 'Catatan', 'Jumlah telepon', 'Telepon lagi', 'Call In', 'Dicatat oleh']];
+    rows.forEach(function (k) { out.push([k.id, k.date, k.branch, k.customer, k.contact, k.phone, k.sn, k.model, k.hm, k.countdown, k.pm, k.status, k.result, k.note, k.attempts, k.next, k.callInId, k.createdBy]); });
+    saveBlob(makeXlsx([{ name: 'Livelink Reminder', rows: out, widths: [14, 11, 8, 28, 18, 14, 12, 10, 9, 10, 13, 16, 26, 30, 9, 16, 13, 18] }]), 'Livelink_Reminder_' + S.session.company + '_' + todayISO() + '.xlsx');
+    toast('Excel Livelink diunduh', 'ok');
+  }
+  function exportPromoXlsx() {
+    var P = S.co.promo, rec = [['Program', 'Kategori', 'Mulai', 'Sampai', 'Cabang', 'Benefit', 'Dihubungi', 'Tertarik', '% tertarik', 'Tidak tertarik', 'Alasan', 'Tidak terhubung', 'Hubungi lagi']];
+    P.programs.forEach(function (p) { var a = promoAgg(P.calls.filter(function (k) { return k.programId === p.id; }));
+      rec.push([p.name, p.category, p.start, p.end, p.branches, p.benefit, a.n, a.yes, a.rate == null ? '' : a.rate / 100, a.no, Object.keys(a.reasons).map(function (r) { return r + ' ' + a.reasons[r]; }).join(', '), a.fail, a.again]); });
+    var det = [['No.', 'Tanggal', 'Program', 'Kategori', 'Cabang', 'Customer', 'Customer baru', 'Contact', 'Telepon', 'Via', 'Status', 'Hasil', 'Alasan', 'Catatan', 'Jumlah telepon', 'Tertarik untuk', 'Call In', 'Dicatat oleh']];
+    P.calls.forEach(function (k) { det.push([k.id, k.date, k.program, k.category, k.branch, k.customer, k.newCust ? 'Ya' : '', k.contact, k.phone, k.channel, k.status, k.result, k.reason, k.note, k.attempts, k.interest, k.callInId, k.createdBy]); });
+    saveBlob(makeXlsx([{ name: 'Rekap Promo', rows: rec, widths: [30, 14, 11, 11, 14, 36, 10, 9, 10, 12, 30, 12, 11] }, { name: 'Telepon Promo', rows: det, widths: [14, 16, 28, 14, 8, 28, 10, 18, 14, 10, 18, 14, 18, 30, 10, 10, 13, 18] }]),
+      'Promo_Call_Out_' + S.session.company + '_' + todayISO() + '.xlsx');
+    toast('Excel promo diunduh', 'ok');
   }
 
   function viewQueue() {
@@ -3003,7 +3372,7 @@
   window.addEventListener('online', function () { renderStatus(); syncQueue(); });
   window.addEventListener('offline', renderStatus);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { syncQueue(); if (Date.now() - lastPoll > 20000) pollCounts(true); } });
-  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.openFilter && S.session) { var f = e.data.openFilter; if (f === 'myfudue') openQuotes('due'); else if (f === 'cc') openCc('call'); else if (f === 'complaints') openComplaints(can('callCenter') ? 'open' : 'mine'); else if (f === 'callIn') openCallIn(); else openList(f); } });
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.openFilter && S.session) { var f = e.data.openFilter; if (f === 'myfudue') openQuotes('due'); else if (f === 'cc') openCc('call'); else if (f === 'complaints') openComplaints(can('callCenter') ? 'open' : 'mine'); else if (f === 'callIn') openCallIn(); else if (f === 'callOut') openCallOut(); else openList(f); } });
   var lastWide = wide();
   window.addEventListener('resize', debounce(function () { if (wide() !== lastWide) { lastWide = wide(); if (S.view !== 'mhc') render(); } }, 200));
   setInterval(syncQueue, 60000);

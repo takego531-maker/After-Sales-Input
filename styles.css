@@ -438,3 +438,14 @@ pre.log { white-space: pre-wrap; font: 12.5px/1.5 inherit; font-family: inherit;
 .fchip.big { padding: 9px 14px; font-size: 14px; }
 .ci-cats[data-missing="1"] .fchip { border-color: var(--err); }
 pre.log.wa { font-size: 13.5px; }
+/* ---------- Call Out (v2.11) ---------- */
+.co-tabs { margin-top: 8px; }
+.co-tabs .seg-btn { font-size: 13.5px; }
+.seg.pm-seg .seg-btn { font-size: 13px; }
+.seg.pm-seg .seg-btn.on.pm-yellow { background: #e0b400; color: #1b1d22; }
+.seg.pm-seg .seg-btn.on.pm-red { background: var(--err); color: #fff; }
+.seg.pm-seg[data-missing="1"] { outline: 2px solid var(--err); }
+.lv-hist { background: var(--info-bg); border-radius: 8px; padding: 8px 10px; margin: 8px 0; display: grid; gap: 2px; }
+.promo-box { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; display: grid; gap: 4px; }
+.promo-card.on { border-color: var(--accent); }
+.fchip .fn.muted-n { background: #7a808a; }
