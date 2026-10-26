@@ -310,6 +310,15 @@
     app.appendChild(main);
     app.appendChild(viewTabs());
   }
+  /** render ulang setelah 'change' tanpa kehilangan fokus di kolom berikutnya yang baru disentuh (HP: ketuk kolom lain) */
+  function renderKeep() {
+    setTimeout(function () {
+      var a = document.activeElement, id = a && a.id, pos = null, y = window.scrollY;
+      try { pos = a && a.selectionStart; } catch (e) { }
+      render(); window.scrollTo(0, y);
+      if (id) { var el = document.getElementById(id); if (el) { el.focus(); try { if (pos != null) el.setSelectionRange(pos, pos); } catch (e) { } } }
+    }, 0);
+  }
   function go(view) { S.view = view; render(); window.scrollTo(0, 0); }
   function renderHeader() {
     var top = $('#top'); if (!top || !S.session) return;
@@ -2418,7 +2427,7 @@
       x.status !== 'Selesai' ? h('div', { class: 'cc-contact' },
         h('label', { class: 'lbl' }, 'Contact Person'), h('input', { class: 'inp', id: 'cc-contact', value: W.contact || '', oninput: function (e) { W.contact = e.target.value; } }),
         h('label', { class: 'lbl' }, 'Telepon'), h('input', { class: 'inp', id: 'cc-phone', type: 'tel', value: W.phone || '', oninput: function (e) { W.phone = e.target.value; },
-          onchange: function () { render(); } }),
+          onchange: function () { renderKeep(); } }),
         h('div', { class: 'row-btns' }, tel ? h('a', { class: 'btn primary', href: 'tel:' + tel }, '☎ Telepon ' + W.phone) : h('span', { class: 'warn-text small' }, 'Isi nomor telepon customer'),
           wa ? h('a', { class: 'btn small', href: wa, target: '_blank', rel: 'noopener' }, 'WhatsApp') : null,
           h('button', { class: 'btn small ghost', onclick: function () { openDetail({ row: x.mhcRow, mhcNo: x.mhcNo, isOld: false }); S.detail.from = 'ccSurvey'; } }, 'Lihat MHC'))) : null);
@@ -2842,7 +2851,7 @@
       pick,
       isNewCust ? h('div', { class: 'banner ok col' }, h('b', null, '⭐ Customer baru?'), h('span', null, 'Nama ini belum ada di Machine Population maupun riwayat Call In. Isi data selengkap mungkin. Saat disimpan, Call In ditandai "Customer baru" supaya cabang tahu ada prospek baru.')) : null,
       h('div', { class: 'grid2' }, h('div', { class: 'field' }, h('label', { class: 'lbl', for: 'ci-customer' }, 'Customer', h('span', { class: 'req' }, ' *')),
-        h('input', { class: 'inp', id: 'ci-customer', value: F.customer, autocomplete: 'off', 'data-missing': F.tried && !F.customer.trim() ? '1' : null, oninput: function (e) { F.customer = e.target.value; }, onchange: function () { render(); } })), inp('Contact Person', 'contact', { half: true }), inp('Telepon', 'phone', { required: true, type: 'tel', half: true }),
+        h('input', { class: 'inp', id: 'ci-customer', value: F.customer, autocomplete: 'off', 'data-missing': F.tried && !F.customer.trim() ? '1' : null, oninput: function (e) { F.customer = e.target.value; }, onchange: function () { renderKeep(); } })), inp('Contact Person', 'contact', { half: true }), inp('Telepon', 'phone', { required: true, type: 'tel', half: true }),
         inp('Unit (brand / model)', 'unit', { half: true }), inp('Serial No', 'sn', { half: true }), inp('Lokasi', 'location')),
       inp('Permintaan / pesan customer', 'request', { textarea: true, required: true, ph: (cfg.hints || {})[F.category] || 'Tulis permintaan customer' }),
       F.category === 'Part' || F.category === 'Service' ? h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'ci-urgent', checked: F.urgent, onchange: set('urgent') }), 'Urgent (unit breakdown / customer menunggu)') : null,
@@ -3030,7 +3039,7 @@
     return h('div', { class: 'field' + (opts.half ? ' half' : '') }, h('label', { class: 'lbl', for: 'co-' + k }, label, opts.required ? h('span', { class: 'req' }, ' *') : null), el);
   }
   function branchSelect(F, id) {
-    return h('select', { class: 'inp', id: id, 'data-missing': F.tried && !F.branch ? '1' : null, onchange: function (e) { F.branch = e.target.value; render(); } },
+    return h('select', { class: 'inp', id: id, 'data-missing': F.tried && !F.branch ? '1' : null, onchange: function (e) { F.branch = e.target.value; renderKeep(); } },
       h('option', { value: '' }, '— pilih cabang —'), (S.boot.branches || []).map(function (b) { return h('option', { value: b, selected: F.branch === b }, b); }));
   }
   /** isian hasil telepon (dipakai Livelink & Promo) */
@@ -3158,12 +3167,12 @@
         coField(F, 'Serial Number unit', 'sn', { required: true, ph: 'mis. 3193439', onchange: function () {
           var hit = (S.boot.population || []).filter(function (r) { return String(r[0]).toUpperCase() === F.sn.trim().toUpperCase(); })[0];
           if (hit) { if (!F.customer) F.customer = hit[3]; if (!F.model) F.model = hit[2]; if (!F.phone && hit[6]) F.phone = hit[6]; if (!F.branch && hit[8]) F.branch = hit[8]; }
-          render(); } }),
+          renderKeep(); } }),
         snHit ? h('p', { class: 'hint ok-text' }, '✓ SN ditemukan di Machine Population: ' + [snHit[3], snHit[1], snHit[2], snHit[8]].filter(Boolean).join(' · ')) : null,
         openDup ? h('div', { class: 'banner bad col' }, h('b', null, 'SN ini masih punya reminder berjalan (' + openDup.id + ', ' + fmtDate(openDup.date) + ').'), h('span', null, 'Isi hasil telepon di reminder itu saja, tidak perlu dicatat ulang.')) : null,
         F.sn.trim() ? lvHistoryList(F.sn) : null,
         coField(F, 'Nama Customer (tempel dari kolom Customers Livelink juga bisa)', 'customer', { required: true, onchange: function () {
-          var x = splitLivelinkCustomer(F.customer); if (x.branch) { F.customer = x.customer; F.branch = x.branch; } render(); } }),
+          var x = splitLivelinkCustomer(F.customer); if (x.branch) { F.customer = x.customer; F.branch = x.branch; } renderKeep(); } }),
         h('div', { class: 'grid2' }, coField(F, 'Model', 'model', { half: true, required: true, ph: '3DX / 3CX / JS 215…' }), coField(F, 'HM Unit', 'hm', { half: true, num: true, required: true, ph: 'Total machine life hours' }),
           coField(F, 'Sisa jam ke PM', 'countdown', { half: true, num: true, ph: 'Service engine hours countdown' })),
         h('label', { class: 'lbl' }, 'Status di Livelink', h('span', { class: 'req' }, ' *')),
@@ -3231,14 +3240,14 @@
     var A = F.again;
     return h('div', { class: 'card' }, h('h2', null, A ? 'Telepon ulang ' + A.id : 'Catat telepon Promo'),
       h('label', { class: 'lbl' }, 'Promo Program', h('span', { class: 'req' }, ' *')),
-      A ? h('p', null, h('b', null, A.program)) : h('select', { class: 'inp', id: 'pc-program', 'data-missing': F.tried && !F.programId ? '1' : null, onchange: function (e) { F.programId = e.target.value; render(); } },
+      A ? h('p', null, h('b', null, A.program)) : h('select', { class: 'inp', id: 'pc-program', 'data-missing': F.tried && !F.programId ? '1' : null, onchange: function (e) { F.programId = e.target.value; renderKeep(); } },
         h('option', { value: '' }, progs.length ? '— pilih promo yang berlaku —' : '(belum ada promo yang berlaku — buat dulu di tab Promotion Program)'),
         progs.map(function (x) { return h('option', { value: x.id, selected: x.id === F.programId }, x.name + ' · ' + x.category + ' · s/d ' + fmtDate(x.end)); })),
       p ? h('div', { class: 'promo-box' }, h('div', { class: 'chips' }, chip(p.category, 'info'), h('span', { class: 'chip' }, fmtDate(p.start) + ' – ' + fmtDate(p.end)), h('span', { class: 'chip' }, p.branches === 'ALL' ? 'Semua cabang' : p.branches)),
         p.benefit ? h('div', { class: 'small' }, p.benefit) : null, p.link ? h('a', { class: 'small', href: p.link, target: '_blank', rel: 'noopener' }, '🔗 Buka materi / flyer') : null) : null,
       A ? null : [coCustomerPicker(F),
         isNew ? h('p', { class: 'hint ok-text' }, '⭐ Customer baru — belum ada di Population / riwayat Call In.') : null,
-        coField(F, 'Nama Customer', 'customer', { required: true, onchange: function () { render(); } }),
+        coField(F, 'Nama Customer', 'customer', { required: true, onchange: function () { renderKeep(); } }),
         h('label', { class: 'lbl' }, 'Cabang', h('span', { class: 'req' }, ' *')), branchSelect(F, 'pc-branch'),
         !branchOk ? h('p', { class: 'hint err-text' }, 'Promo ini hanya berlaku di cabang ' + p.branches + '.') : null],
       h('div', { class: 'grid2' }, coField(F, 'Contact Person', 'contact', { half: true }), coField(F, 'Telepon', 'phone', { half: true, type: 'tel', required: true })),
