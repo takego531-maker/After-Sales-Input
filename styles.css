@@ -434,3 +434,7 @@ pre.log { white-space: pre-wrap; font: 12.5px/1.5 inherit; font-family: inherit;
 .kc-form .btn { margin-top: 10px; }
 .warn-card { border: 1.5px solid var(--err); }
 .kpis div.kpi { cursor: default; }
+/* ---------- Call In (v2.10) ---------- */
+.fchip.big { padding: 9px 14px; font-size: 14px; }
+.ci-cats[data-missing="1"] .fchip { border-color: var(--err); }
+pre.log.wa { font-size: 13.5px; }

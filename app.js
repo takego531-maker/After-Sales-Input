@@ -155,6 +155,8 @@
     if (can('marInput')) w.push(['marMissing', 'hari kerja MAR belum diisi', null]);
     if (isPssrOnly()) w.push(['myfudue', 'quotation perlu Anda follow up ke customer', 'myfudue']);
     if (can('callCenter')) w.push(['ccDue', 'survei customer perlu ditelepon', 'cc']);
+    if (can('callCenter')) w.push(['callInWa', 'Call In perlu diteruskan ke WA group', 'callIn']);
+    else if (can('callInView')) w.push(['callInOpen', 'permintaan customer (Call In) baru untuk Anda', 'callIn']);
     if (can('complaintView')) w.push(['complaintsOpen', can('callCenter') ? 'keluhan customer belum selesai' : 'keluhan customer perlu Anda tindak lanjuti', 'complaints']);
     return w;
   }
@@ -283,7 +285,7 @@
     document.body.classList.toggle('is-wide', wide());
     if (!S.session) { app.appendChild(viewLogin()); return; }
     app.appendChild(h('header', { class: 'top', id: 'top' })); renderHeader();
-    var main = h('main', { class: 'main' + (S.view === 'mhc' ? ' with-steps' : '') + (['detail', 'list', 'quotes', 'cc', 'ccSurvey', 'complaints', 'ccRekap'].indexOf(S.view) >= 0 ? ' office' : '') });
+    var main = h('main', { class: 'main' + (S.view === 'mhc' ? ' with-steps' : '') + (['detail', 'list', 'quotes', 'cc', 'ccSurvey', 'complaints', 'ccRekap', 'callIn', 'callInNew'].indexOf(S.view) >= 0 ? ' office' : '') });
     if (S.session.expired) main.appendChild(h('div', { class: 'banner warn' }, h('div', null, h('b', null, 'Sesi login habis. '), 'Data antrean tetap aman di HP ini.'),
       h('button', { class: 'btn small', onclick: function () { logout(true); } }, 'Login ulang')));
     if (!S.boot) main.appendChild(h('div', { class: 'card center' }, h('p', null, online() ? 'Mengambil data form dari Google Sheet…' : 'Sambungkan ke internet sekali untuk mengunduh data form.'),
@@ -299,6 +301,8 @@
     else if (S.view === 'ccSurvey' && can('callCenter') && S.ccs) main.appendChild(viewCcSurvey());
     else if (S.view === 'complaints' && can('complaintView')) main.appendChild(viewComplaints());
     else if (S.view === 'ccRekap' && can('ccRekap')) main.appendChild(viewCcRekap());
+    else if (S.view === 'callIn' && can('callInView')) main.appendChild(viewCallIn());
+    else if (S.view === 'callInNew' && can('callCenter') && S.cif) main.appendChild(viewCallInNew());
     else main.appendChild(viewHome());
     app.appendChild(main);
     app.appendChild(viewTabs());
@@ -399,6 +403,8 @@
         can('quoteMonitor') ? (isPssrOnly() ? tile('⇄', 'Quotation saya', (C.myfudue ? C.myfudue + ' perlu di-follow up · ' : '') + 'Follow up customer, catat hasilnya, update Negosiasi / PO / Lose', function () { openQuotes(); }, C.myfudue ? 'accent' : '', C.myfudue)
           : tile('⇄', 'Monitoring Quotation', 'Quotation berjalan per PSSR, umur, nilai & follow up' + (C.fudue ? ' · ' + C.fudue + ' perlu follow up' : ''), function () { openQuotes(); }, '', C.fudue)) : null,
         can('callCenter') ? tile('☏', 'Survei Kepuasan', (C.ccDue ? C.ccDue + ' perlu ditelepon · ' : '') + (C.ccLate ? C.ccLate + ' lewat batas · ' : '') + 'Parts & Service maks. ' + (ccCfg().dueWorkdays || 2) + ' hari kerja setelah invoice', function () { openCc(); }, C.ccDue ? 'accent' : '', C.ccDue) : null,
+        can('callCenter') ? tile('☎', 'Call In', (C.callInWa ? C.callInWa + ' perlu diteruskan / diinfokan ke WA · ' : '') + 'Catat telepon / WA masuk: Part, Service, Unit, Keluhan, Lainnya', function () { openCallIn(); }, C.callInWa ? 'accent' : '', C.callInWa)
+          : can('callInView') ? tile('☎', 'Permintaan Customer', (C.callInOpen ? C.callInOpen + ' untuk Anda · ' : '') + 'Permintaan Part / Service dari Call Center', function () { openCallIn('mine'); }, C.callInOpen ? 'accent' : '', C.callInOpen) : null,
         can('complaintView') ? tile('⚠', 'Keluhan Customer', can('callCenter') ? 'Pantau keluhan yang diteruskan ke cabang sampai Selesai' : (C.complaintsOpen ? C.complaintsOpen + ' perlu tindakan · ' : '') + 'Keluhan dari survei Call Center — isi tindakan sampai Selesai',
           function () { openComplaints(can('callCenter') ? 'open' : 'mine'); }, C.complaintsOpen && !can('callCenter') ? 'accent' : '', C.complaintsOpen) : null,
         can('ccRekap') ? tile('▦', 'Rekap Survei', 'CSAT & NPS per cabang, mekanik, PSSR · Excel', function () { openCcRekap(); }) : null,
@@ -414,7 +420,6 @@
   // Menu form berikutnya: tampil hanya untuk role yang mengisinya (ADMIN_HO selalu)
   var NEXT_MENUS = [
     ['yardInput', '◫', 'Machine Yard Activity', ['MEKANIK', 'SERVICE_LEADER', 'ADMIN_PS']],
-    ['callCenter', '☎', 'Call In (permintaan Part / Service / Unit)', ['CALL_CENTER']],
     ['callCenter', '📣', 'Call Out promo & Livelink Service Reminder', ['CALL_CENTER']],
     ['popUpdate', '⟳', 'Update Population', ['ADMIN_PS', 'PSSR']]
   ];
@@ -814,7 +819,7 @@
     var L = S.list;
     if (!online()) { toast('Daftar MHC butuh koneksi internet', 'warn'); return; }
     L.loading = true; if (S.view === 'list') render();
-    api('formListMhc', { token: S.session.token, q: L.q, filter: L.filter || 'all', limit: 50 }, 60000).then(function (r) { L.rows = r.rows; L.hasMore = !!r.hasMore; L.loading = false; setCounts(r.counts); if (S.view === 'list') render(); })
+    api('formListMhc', { token: S.session.token, q: L.q, filter: L.filter || 'all', limit: 50, old: !!L.old }, 60000).then(function (r) { L.rows = r.rows; L.hasMore = !!r.hasMore; L.loading = false; setCounts(r.counts); if (S.view === 'list') render(); })
       .catch(function (e) { L.loading = false; if (e.auth) return markExpired(); toast(e.message, 'err'); if (S.view === 'list') render(); });
   }
   function sideChips(r) {
@@ -832,7 +837,9 @@
         var n = C[f[0]];
         return h('button', { type: 'button', class: 'fchip' + (L.filter === f[0] ? ' on' : ''), onclick: function () { L.filter = f[0]; loadList(); } }, f[1], n ? h('span', { class: 'fn' }, n) : null);
       })),
-      h('div', { class: 'search-row' }, q, h('button', { class: 'btn primary', type: 'submit' }, 'Cari')));
+      h('div', { class: 'search-row' }, q, h('button', { class: 'btn primary', type: 'submit' }, 'Cari')),
+      L.filter === 'invoice' ? h('label', { class: 'check small' }, h('input', { type: 'checkbox', id: 'l-old', checked: !!L.old, onchange: function (e) { L.old = e.target.checked; loadList(); } }),
+        'Tampilkan data lama — history sebelum aplikasi, tidak dihitung di angka & notifikasi') : null);
     var body;
     if (L.loading) body = h('div', { class: 'card center muted' }, 'Memuat…');
     else if (L.rows == null) body = h('div', { class: 'card center' }, h('button', { class: 'btn', onclick: loadList }, 'Tampilkan data'));
@@ -856,7 +863,7 @@
     });
     var more = L.rows && L.rows.length && L.hasMore ? h('button', { class: 'btn block', style: 'margin-bottom:12px', disabled: !!L.moreLoading, onclick: function () {
       L.moreLoading = true; render();
-      api('formListMhc', { token: S.session.token, q: L.q, filter: L.filter || 'all', limit: 50, offset: L.rows.length }, 60000)
+      api('formListMhc', { token: S.session.token, q: L.q, filter: L.filter || 'all', limit: 50, offset: L.rows.length, old: !!L.old }, 60000)
         .then(function (r) { L.rows = L.rows.concat(r.rows); L.hasMore = !!r.hasMore; L.moreLoading = false; render(); })
         .catch(function (e) { L.moreLoading = false; toast(e.message, 'err'); render(); });
     } }, L.moreLoading ? 'Memuat…' : 'Muat 50 lagi') : null;
@@ -2549,7 +2556,7 @@
     return h('div', { class: 'card item kcitem' + (k.open && k.canHandle ? ' due' : '') },
       h('button', { type: 'button', class: 'kc-head', onclick: toggle },
         h('div', { class: 'item-top' }, h('b', null, k.customer || '(tanpa customer)'), chip(k.status, KC_TONE[k.status])),
-        h('div', { class: 'muted small' }, [k.id, fmtDate(k.date), k.branch, k.category, 'Survei ' + k.type, k.mhcNo].filter(Boolean).join(' · ')),
+        h('div', { class: 'muted small' }, [k.id, fmtDate(k.date), k.branch, k.category, k.type === 'Call In' ? 'dari Call In' : 'Survei ' + k.type, k.mhcNo].filter(Boolean).join(' · ')),
         h('div', { class: 'kc-desc' }, k.desc),
         h('div', { class: 'small muted' }, 'Ditangani: ' + (k.assignedTo || '—') + (k.cc ? ' · cc ' + k.cc : '') + (k.open ? ' · ' + k.age + ' hari' : '')),
         k.action ? h('div', { class: 'small ok-text' }, 'Tindakan: ' + k.action) : null),
@@ -2716,6 +2723,254 @@
       can('complaintView') && (C.complaints || []).length ? h('div', { class: 'row-btns' }, h('button', { class: 'btn small', onclick: function () { openComplaints('all', C.complaints[0].id); } }, 'Buka Keluhan Customer')) : null);
   }
 
+  /* ================= Call Center Tahap 2: Call In ================= */
+  function ciCfg() { return (S.boot && S.boot.callIn) || { categories: ['Part', 'Service', 'Unit', 'Keluhan', 'Lainnya'], hints: {}, sources: ['Telepon', 'WhatsApp', 'Email', 'Lainnya'], status: {}, complaintCat: ['Teknis', 'Non-teknis'] }; }
+  var CI_ICON = { Part: '⚙', Service: '🔧', Unit: '🚜', Keluhan: '⚠', Lainnya: '…' };
+  var CI_TONE = { 'Terbuka': 'bad', 'Diproses': 'wait', 'Selesai': 'ok', 'Perlu diteruskan (WA)': 'bad', 'Diteruskan via WA': 'info', 'Jadi keluhan': 'wait' };
+  function fmtDt(s) { return s ? fmtDate(s) + ' ' + String(s).slice(11, 16) : ''; }
+  function ciWaText(k) {
+    var lines = ['*CALL IN — ' + k.category.toUpperCase() + '*' + (k.urgent ? ' 🔴 URGENT' : '') + (k.id ? ' (' + k.id + ')' : ''),
+      'Tanggal: ' + (k.date ? fmtDt(k.date) : fmtTime(Date.now())), 'Cabang: ' + k.branch, 'Customer: ' + k.customer,
+      'Kontak: ' + [k.contact, k.phone].filter(Boolean).join(' · ')];
+    if (k.unit || k.sn) lines.push('Unit: ' + [k.unit, k.sn ? 'SN ' + k.sn : ''].filter(Boolean).join(' '));
+    if (k.location) lines.push('Lokasi: ' + k.location);
+    lines.push('Permintaan: ' + k.request);
+    lines.push('Masuk via: ' + (k.source || 'Telepon') + ' · Dicatat: ' + (k.createdBy || S.session.user.name));
+    if (k.category === 'Unit') lines.push('', 'Mohon diteruskan ke Branch Manager ' + k.branch + ' untuk follow up.');
+    else if (k.category === 'Part' || k.category === 'Service') lines.push('Ditangani: ' + (k.assignedTo || (k.category === 'Part' ? 'Admin PS / PSSR' : 'Service Leader') + ' ' + k.branch), '', 'Mohon diinfokan ke Branch Manager ' + k.branch + '.');
+    return lines.join('\n');
+  }
+  function copyText(t) {
+    var done = function () { toast('Pesan disalin — tempel di WA group', 'ok'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t).then(done, function () { fallbackCopy(t); done(); });
+    fallbackCopy(t); done(); return Promise.resolve();
+  }
+  function fallbackCopy(t) { var ta = h('textarea', { style: 'position:fixed;top:-1000px' }); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) { } document.body.removeChild(ta); }
+  function waButtons(k) {
+    var t = ciWaText(k);
+    return h('div', { class: 'row-btns' }, h('button', { type: 'button', class: 'btn small primary', onclick: function () { copyText(t); } }, '⧉ Salin pesan WA'),
+      h('a', { class: 'btn small', href: 'https://wa.me/?text=' + encodeURIComponent(t), target: '_blank', rel: 'noopener' }, 'Bagikan ke WhatsApp'));
+  }
+  function openCallIn(f) {
+    var C = S.ci || (S.ci = { filter: can('callCenter') ? 'need' : 'mine', cat: '', branch: '', q: '', rows: null, open: {}, month: todayISO().slice(0, 7) });
+    if (f) C.filter = f;
+    go('callIn'); loadCallIn();
+  }
+  function loadCallIn() {
+    var C = S.ci;
+    if (!online()) { toast('Butuh koneksi internet', 'warn'); return; }
+    C.loading = true; if (S.view === 'callIn') render();
+    api('formCallInList', { token: S.session.token }, 60000).then(function (x) {
+      C.loading = false; C.rows = x.rows; if (x.cfg && S.boot) S.boot.callIn = x.cfg;
+      var st = ciCfg().status || {};
+      setCounts(can('callCenter') ? { callInWa: x.rows.filter(function (k) { return k.needWa; }).length } : { callInOpen: x.rows.filter(function (k) { return k.forMe; }).length });
+      if (S.view === 'callIn') render();
+    }).catch(function (e) { C.loading = false; if (e.auth) return markExpired(); toast(e.message, 'err'); if (S.view === 'callIn') render(); });
+  }
+  function newCallIn(prefill) {
+    S.cif = Object.assign({ source: 'Telepon', category: '', branch: S.session.user.branch !== 'ALL' ? S.session.user.branch : '', customer: '', contact: '', phone: '', unit: '', sn: '', location: '',
+      request: '', urgent: false, kcCategory: 'Teknis', doneDirect: false, answer: '', clientId: uid(), saved: null }, prefill || {});
+    go('callInNew');
+  }
+  function viewCallInNew() {
+    var F = S.cif, cfg = ciCfg(), branches = S.boot.branches || [];
+    var back = h('button', { type: 'button', class: 'btn ghost small back', onclick: function () { openCallIn(); } }, '‹ Kembali ke Call In');
+    if (F.saved) {
+      var k = F.saved;
+      return h('div', null, back, h('div', { class: 'card' }, h('h2', null, '✓ Call In ' + k.id + ' tersimpan'),
+        h('p', null, k.category === 'Part' || k.category === 'Service' ? 'Diteruskan ke ' + (k.assignedTo || '(belum ada penerima di cabang ' + k.branch + ' — cek tab Users)') + (k.emailed ? ' · ' + k.emailed + ' email terkirim' : '') + '.'
+          : k.category === 'Keluhan' ? 'Dibuat sebagai Keluhan Customer ' + k.complaintId + ' → ' + (k.assignedTo || 'cabang ' + k.branch) + '.'
+          : k.status === 'Selesai' ? 'Dicatat sebagai sudah dijawab langsung.' : 'Salin pesan di bawah, kirim ke WA group Call Center, lalu tandai sudah diteruskan.',
+          k.category === 'Part' || k.category === 'Service' ? ' Infokan juga ke BM cabang: salin pesan di bawah, kirim ke WA group, lalu tandai.' : ''),
+        h('pre', { class: 'log wa' }, ciWaText(k)), waButtons(k),
+        k.status === 'Perlu diteruskan (WA)' ? h('div', { class: 'row-btns' }, h('button', { class: 'btn', onclick: function () { ciUpdate(k, 'Diteruskan via WA', '', function () { F.saved.status = 'Diteruskan via WA'; render(); }); } }, '✓ Sudah dikirim ke WA group')) : null,
+        k.status === 'Diteruskan via WA' ? h('p', { class: 'ok-text small' }, '✓ Ditandai sudah diteruskan via WA') : null,
+        (k.category === 'Part' || k.category === 'Service') ? (k.bmDone ? h('p', { class: 'ok-text small' }, '✓ Sudah diinfokan ke BM ' + k.branch)
+          : h('div', { class: 'row-btns' }, h('button', { class: 'btn', onclick: function () { ciMarkBm(k, function () { F.saved.bmDone = true; render(); }); } }, '✓ Sudah diinfokan ke BM (WA group)'))) : null,
+        h('div', { class: 'row-btns' }, h('button', { class: 'btn primary', onclick: function () { newCallIn(); } }, '＋ Catat Call In lain'),
+          h('button', { class: 'btn ghost', onclick: function () { openCallIn(); } }, 'Ke daftar Call In'))));
+    }
+    var set = function (k) { return function (e) { F[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; }; };
+    var inp = function (label, k, opts) {
+      opts = opts || {};
+      var el = opts.textarea ? h('textarea', { class: 'inp', id: 'ci-' + k, rows: 3, placeholder: opts.ph || '', oninput: set(k) }, F[k])
+        : h('input', { class: 'inp', id: 'ci-' + k, type: opts.type || 'text', value: F[k], placeholder: opts.ph || '', oninput: set(k), autocomplete: 'off' });
+      if (opts.required && F.tried && !String(F[k] || '').trim()) el.setAttribute('data-missing', '1');
+      return h('div', { class: 'field' + (opts.half ? ' half' : '') }, h('label', { class: 'lbl', for: 'ci-' + k }, label, opts.required ? h('span', { class: 'req' }, ' *') : null), el);
+    };
+    var pop = S.boot.population || [];
+    var pick = picker('Cari dari Machine Population (opsional)', pop, function (r) { return [r[3], r[0], r[2], r[4]].join(' '); },
+      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[3] || '-'), ' · ', [r[1], r[2]].filter(Boolean).join(' ')), h('div', { class: 'pick-sub' }, ['SN ' + r[0], r[4], r[8]].filter(Boolean).join(' · '))]; },
+      function (r) { F.customer = r[3] || F.customer; F.unit = [r[1], r[2]].filter(Boolean).join(' '); F.sn = r[0] || ''; F.location = r[4] || F.location; if (r[6] && !F.phone) F.phone = r[6]; if (r[8] && branches.indexOf(r[8]) >= 0) F.branch = r[8]; render(); },
+      'Ketik nama customer / SN / model…');
+    var route = F.category === 'Part' ? 'Diteruskan ke Admin PS cabang (email + menu Permintaan Customer), tembusan PSSR cabang.'
+      : F.category === 'Service' ? 'Diteruskan ke Service Leader cabang (email + menu Permintaan Customer).'
+      : F.category === 'Unit' ? 'Dicatat saja, lalu diteruskan manual ke Branch Manager lewat WA group Call Center (tombol Salin pesan WA).'
+      : F.category === 'Keluhan' ? 'Dibuat sebagai Keluhan Customer: Teknis → Service Leader, Non-teknis → Admin PS cabang.'
+      : F.category === 'Lainnya' ? 'Pertanyaan umum: jawab langsung, atau teruskan lewat WA group.' : '';
+    var form = h('div', { class: 'card' }, h('h2', null, 'Catat Call In'),
+      h('label', { class: 'lbl' }, 'Masuk via'), segmented(cfg.sources, F.source, function (v) { F.source = v; }),
+      h('label', { class: 'lbl' }, 'Kategori', h('span', { class: 'req' }, ' *')),
+      h('div', { class: 'chips ci-cats', 'data-missing': F.tried && !F.category ? '1' : null }, cfg.categories.map(function (c) {
+        return h('button', { type: 'button', class: 'fchip big' + (F.category === c ? ' on' : ''), onclick: function () { F.category = c; render(); } }, (CI_ICON[c] || '') + ' ' + c);
+      })),
+      route ? h('p', { class: 'hint' }, route) : null,
+      F.category === 'Keluhan' ? [h('label', { class: 'lbl' }, 'Jenis keluhan'), segmented(cfg.complaintCat, F.kcCategory, function (v) { F.kcCategory = v; })] : null,
+      h('label', { class: 'lbl' }, 'Cabang yang menangani', h('span', { class: 'req' }, ' *')),
+      h('select', { class: 'inp', id: 'ci-branch', 'data-missing': F.tried && !F.branch ? '1' : null, onchange: function (e) { F.branch = e.target.value; } },
+        h('option', { value: '' }, '— pilih cabang —'), branches.map(function (b) { return h('option', { value: b, selected: F.branch === b }, b); })),
+      pick,
+      h('div', { class: 'grid2' }, inp('Customer', 'customer', { required: true }), inp('Contact Person', 'contact', { half: true }), inp('Telepon', 'phone', { required: true, type: 'tel', half: true }),
+        inp('Unit (brand / model)', 'unit', { half: true }), inp('Serial No', 'sn', { half: true }), inp('Lokasi', 'location')),
+      inp('Permintaan / pesan customer', 'request', { textarea: true, required: true, ph: (cfg.hints || {})[F.category] || 'Tulis permintaan customer' }),
+      F.category === 'Part' || F.category === 'Service' ? h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'ci-urgent', checked: F.urgent, onchange: set('urgent') }), 'Urgent (unit breakdown / customer menunggu)') : null,
+      F.category === 'Lainnya' ? [h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'ci-direct', checked: F.doneDirect, onchange: function (e) { F.doneDirect = e.target.checked; render(); } }), 'Sudah dijawab langsung (tidak perlu diteruskan)'),
+        F.doneDirect ? inp('Jawaban yang diberikan', 'answer', { textarea: true }) : null] : null,
+      h('button', { class: 'btn primary block', id: 'ci-save', disabled: !!F.busy, onclick: function () {
+        F.tried = true;
+        var miss = [!F.category && 'Kategori', !F.branch && 'Cabang', !F.customer.trim() && 'Customer', !F.phone.trim() && 'Telepon', !F.request.trim() && 'Permintaan'].filter(Boolean);
+        if (miss.length) { render(); markBad(); return toast('Belum diisi: ' + miss.join(', '), 'err'); }
+        if (!online()) return toast('Butuh koneksi internet', 'warn');
+        F.busy = true; render();
+        var vals = { source: F.source, category: F.category, branch: F.branch, customer: F.customer.trim(), contact: F.contact.trim(), phone: F.phone.trim(), unit: F.unit.trim(), sn: F.sn.trim(),
+          location: F.location.trim(), request: F.request.trim(), urgent: !!F.urgent && (F.category === 'Part' || F.category === 'Service'), kcCategory: F.kcCategory, doneDirect: F.category === 'Lainnya' && !!F.doneDirect, answer: F.answer.trim() };
+        api('formCallInSave', { token: S.session.token, values: vals, clientId: F.clientId }, 60000).then(function (r) {
+          F.busy = false;
+          F.saved = Object.assign({}, vals, { id: r.id, status: r.status, complaintId: r.complaintId, emailed: r.emailed, assignedTo: r.assignedTo, createdBy: S.session.user.name, date: '' });
+          toast('Call In ' + r.id + ' tersimpan', 'ok'); loadCounts(); render(); window.scrollTo(0, 0);
+        }).catch(function (e) { F.busy = false; toast(e.message, 'err'); render(); });
+      } }, F.busy ? 'Menyimpan…' : 'Simpan Call In'));
+    return h('div', null, back, form);
+  }
+  function ciMarkBm(k, after) {
+    if (!online()) return toast('Butuh koneksi internet', 'warn');
+    api('formCallInUpdate', { token: S.session.token, id: k.id, markBm: true, clientId: uid() }).then(function () {
+      toast(k.id + ' · sudah diinfokan ke BM', 'ok'); loadCounts(); if (after) after(); else loadCallIn();
+    }).catch(function (e) { toast(e.message, 'err'); });
+  }
+  function ciUpdate(k, status, tindakan, after) {
+    if (!online()) return toast('Butuh koneksi internet', 'warn');
+    api('formCallInUpdate', { token: S.session.token, id: k.id, status: status, tindakan: tindakan || '', clientId: uid() }).then(function () {
+      toast(k.id + ' · ' + status, 'ok'); loadCounts(); if (after) after(); else loadCallIn();
+    }).catch(function (e) { toast(e.message, 'err'); render(); });
+  }
+  var CI_FILTERS = [['need', 'Perlu diteruskan / diinfokan WA', 'cc'], ['mine', 'Untuk saya', 'handler'], ['open', 'Belum selesai'], ['urgent', 'Urgent'], ['done', 'Selesai / diteruskan'], ['all', 'Semua']];
+  function ciMatch(k, f) {
+    if (f === 'need') return k.needWa;
+    if (f === 'mine') return k.forMe;
+    if (f === 'open') return k.open;
+    if (f === 'urgent') return k.open && k.urgent;
+    if (f === 'done') return !k.open;
+    return true;
+  }
+  function viewCallIn() {
+    var C = S.ci, isCc = can('callCenter'), title = isCc ? 'Call In' : 'Permintaan Customer';
+    var addBtn = isCc ? h('button', { class: 'btn small primary', onclick: function () { newCallIn(); } }, '＋ Catat Call In') : null;
+    if (C.loading && !C.rows) return h('div', null, h('h2', { class: 'page-t' }, title), h('div', { class: 'card center muted' }, 'Memuat…'));
+    if (!C.rows) return h('div', null, h('h2', { class: 'page-t' }, title), h('div', { class: 'card center' }, addBtn, ' ', h('button', { class: 'btn', onclick: loadCallIn }, 'Tampilkan')));
+    var base = C.rows.filter(function (k) { return (!C.cat || k.category === C.cat) && (!C.branch || k.branch === C.branch); });
+    var ql = C.q.toLowerCase();
+    var rows = base.filter(function (k) { return ciMatch(k, C.filter) && (!ql || [k.id, k.customer, k.contact, k.phone, k.request, k.sn, k.unit, k.complaintId].join(' ').toLowerCase().indexOf(ql) >= 0); });
+    var filters = CI_FILTERS.filter(function (f) { return !f[2] || (f[2] === 'cc' ? isCc : !isCc); });
+    var branches = {}; C.rows.forEach(function (k) { branches[k.branch] = 1; });
+    var q = h('input', { class: 'inp sm', type: 'search', id: 'ci-search', placeholder: 'Cari customer / telepon / No. Call In…', value: C.q });
+    q.addEventListener('input', debounce(function () { C.q = q.value.trim(); render(); var el = document.getElementById('ci-search'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 300));
+    // ringkasan bulan berjalan per kategori
+    var month = todayISO().slice(0, 7), mrows = base.filter(function (k) { return k.date.slice(0, 7) === month; });
+    var cats = ciCfg().categories;
+    var closed = base.filter(function (k) { return k.hours != null && (k.category === 'Part' || k.category === 'Service'); });
+    var avgH = closed.length ? Math.round(closed.reduce(function (a, k) { return a + k.hours; }, 0) / closed.length * 10) / 10 : null;
+    var kpi = function (label, big, sub, tone, f) {
+      return h('button', { type: 'button', class: 'kpi ' + (tone || '') + (f && C.filter === f ? ' on' : ''), onclick: function () { if (f) { C.filter = f; render(); } } },
+        h('span', { class: 'kpi-l' }, label), h('b', { class: 'kpi-v' }, big), h('span', { class: 'kpi-s' }, sub));
+    };
+    var nNeed = base.filter(function (k) { return ciMatch(k, 'need'); }).length, nOpen = base.filter(function (k) { return k.open; }).length, nUrg = base.filter(function (k) { return ciMatch(k, 'urgent'); }).length;
+    var nMine = base.filter(function (k) { return k.forMe; }).length;
+    var head = h('div', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', null, title), h('div', { class: 'row-btns' }, addBtn,
+        h('button', { class: 'btn small ghost', onclick: loadCallIn, disabled: !!C.loading }, C.loading ? 'Memuat…' : '↻'),
+        h('button', { class: 'btn small', onclick: function () { exportCallInXlsx(rows); } }, '⬇ Excel'))),
+      h('p', { class: 'hint' }, isCc ? 'Part → Admin PS (tembusan PSSR) · Service → Service Leader (tembusan Admin PS) · Part & Service juga diinfokan ke BM lewat WA group · Unit & Lainnya → WA group · Keluhan → Keluhan Customer.'
+        : 'Permintaan customer dari Call Center. Part: Admin PS / PSSR hubungi customer & isi tindakan. Service: Service Leader isi tindakan sampai Selesai, Admin PS menerima informasinya.'),
+      h('div', { class: 'kpis' },
+        isCc ? kpi('Perlu diteruskan WA', String(nNeed), 'Unit / Lainnya belum dikirim · Part / Service belum diinfokan ke BM', nNeed ? 'bad' : 'ok', 'need')
+          : kpi('Untuk saya', String(nMine), can('slReview') ? 'Service cabang — isi tindakan' : 'Part (tindak lanjut) · Service (informasi)', nMine ? 'bad' : 'ok', 'mine'),
+        kpi('Belum selesai', String(nOpen), 'semua kategori', nOpen ? '' : 'ok', 'open'),
+        kpi('Urgent', String(nUrg), 'unit breakdown / customer menunggu', nUrg ? 'bad' : 'ok', 'urgent'),
+        kpi('Bulan ini', String(mrows.length), cats.map(function (c) { var n = mrows.filter(function (k) { return k.category === c; }).length; return n ? c + ' ' + n : ''; }).filter(Boolean).join(' · ') || '—', ''),
+        kpi('Rata-rata selesai', avgH == null ? '—' : (avgH < 24 ? avgH + ' jam' : Math.round(avgH / 24 * 10) / 10 + ' hari'), 'Part & Service, dari dicatat sampai Selesai', '')),
+      h('div', { class: 'chips filt' }, filters.map(function (f) {
+        var n = base.filter(function (k) { return ciMatch(k, f[0]); }).length;
+        return h('button', { type: 'button', class: 'fchip' + (C.filter === f[0] ? ' on' : ''), onclick: function () { C.filter = f[0]; render(); } }, f[1], n && ['all', 'done'].indexOf(f[0]) < 0 ? h('span', { class: 'fn' }, n) : null);
+      })),
+      h('div', { class: 'search-row' }, q,
+        h('select', { class: 'inp sm', id: 'ci-cat', onchange: function (e) { C.cat = e.target.value; render(); } }, h('option', { value: '' }, 'Semua kategori'), cats.map(function (c) { return h('option', { value: c, selected: C.cat === c }, c); })),
+        Object.keys(branches).length > 1 ? h('select', { class: 'inp sm', id: 'ci-br', onchange: function (e) { C.branch = e.target.value; render(); } },
+          h('option', { value: '' }, 'Semua cabang'), Object.keys(branches).sort().map(function (b) { return h('option', { value: b, selected: C.branch === b }, b); })) : null));
+    // rekap per cabang × kategori (Call Center)
+    var recap = null;
+    if (isCc && base.length) {
+      var by = {}; base.forEach(function (k) { var x = by[k.branch] || (by[k.branch] = { open: 0 }); x[k.category] = (x[k.category] || 0) + 1; if (k.open) x.open++; });
+      recap = h('details', { class: 'card recap', open: wide() }, h('summary', null, 'Rekap per cabang (' + base.length + ' Call In)'),
+        h('div', { class: 'tblwrap' }, h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ['Cabang'].concat(cats, ['Total', 'Belum selesai']).map(function (t) { return h('th', null, t); }))),
+          h('tbody', null, Object.keys(by).sort().map(function (b) {
+            var x = by[b], tot = 0; cats.forEach(function (c) { tot += x[c] || 0; });
+            return h('tr', { onclick: function () { C.branch = b; render(); } }, h('td', null, h('b', null, b)), cats.map(function (c) { return h('td', { class: 'num' }, x[c] || 0); }), h('td', { class: 'num' }, h('b', null, tot)),
+              h('td', { class: 'num' }, x.open ? h('span', { class: 'chip bad' }, x.open) : '0'));
+          })))));
+    }
+    var body = !rows.length ? h('div', { class: 'card center muted' }, C.filter === 'need' || C.filter === 'mine' ? 'Tidak ada yang perlu ditindaklanjuti. 👍' : 'Tidak ada Call In di filter ini.')
+      : h('div', { class: 'qlist' }, rows.map(ciCard));
+    return h('div', null, head, recap, body);
+  }
+  function ciCard(k) {
+    var C = S.ci, isOpen = !!C.open[k.id], E = C.edit && C.edit.id === k.id ? C.edit : null;
+    var form = null;
+    if (isOpen && k.canHandle && k.open && (k.category === 'Part' || k.category === 'Service')) {
+      E = E || (C.edit = { id: k.id, status: k.status === 'Terbuka' ? 'Diproses' : k.status, tindakan: k.action });
+      form = h('div', { class: 'kc-form' },
+        h('label', { class: 'lbl' }, 'Status'), segmented(['Diproses', 'Selesai'], E.status, function (v) { E.status = v; render(); }),
+        h('label', { class: 'lbl' }, 'Tindakan' + (E.status === 'Selesai' ? ' (wajib)' : '')),
+        h('textarea', { class: 'inp', id: 'ci-act-' + k.id, rows: 3, placeholder: k.category === 'Part' ? 'mis. Quotation dikirim, part ready, dikirim besok' : 'mis. Mekanik dijadwalkan 28 Okt, Call ID 12345', oninput: function (e) { E.tindakan = e.target.value; } }, E.tindakan || ''),
+        h('button', { class: 'btn primary', onclick: function () {
+          if (E.status === 'Selesai' && !String(E.tindakan || '').trim()) return toast('Isi tindakan sebelum menandai Selesai', 'err');
+          ciUpdate(k, E.status, String(E.tindakan || '').trim(), function () { C.edit = null; loadCallIn(); });
+        } }, 'Simpan'));
+    } else if (isOpen && k.canHandle && (k.category === 'Unit' || k.category === 'Lainnya') && k.status !== 'Selesai') {
+      E = E || (C.edit = { id: k.id, tindakan: k.action });
+      form = h('div', { class: 'kc-form' },
+        k.status === 'Perlu diteruskan (WA)' ? h('button', { class: 'btn', onclick: function () { ciUpdate(k, 'Diteruskan via WA', ''); } }, '✓ Sudah dikirim ke WA group') : h('p', { class: 'small ok-text' }, '✓ Diteruskan via WA' + (k.waBy ? ' oleh ' + k.waBy + ' · ' + fmtDt(k.waAt) : '')),
+        h('label', { class: 'lbl' }, 'Hasil / catatan (opsional, untuk menutup)'),
+        h('textarea', { class: 'inp', id: 'ci-act-' + k.id, rows: 2, placeholder: 'mis. BM sudah menghubungi customer, penawaran unit dikirim', oninput: function (e) { E.tindakan = e.target.value; } }, E.tindakan || ''),
+        h('button', { class: 'btn small ghost', onclick: function () { if (!String(E.tindakan || '').trim()) return toast('Isi hasil / catatan dulu', 'err'); ciUpdate(k, 'Selesai', String(E.tindakan).trim(), function () { C.edit = null; loadCallIn(); }); } }, 'Tandai Selesai'));
+    }
+    return h('div', { class: 'card item kcitem' + (k.needMe ? ' due' : '') },
+      h('button', { type: 'button', class: 'kc-head', onclick: function () { C.open[k.id] = !isOpen; render(); } },
+        h('div', { class: 'item-top' }, h('b', null, (CI_ICON[k.category] || '') + ' ' + (k.customer || '-')), chip(k.status === 'Jadi keluhan' && k.kcStatus ? 'Keluhan ' + k.kcStatus : k.status, CI_TONE[k.status === 'Jadi keluhan' && k.kcStatus === 'Selesai' ? 'Selesai' : k.status])),
+        h('div', { class: 'muted small' }, [k.id, fmtDt(k.date), k.branch, k.category, k.source].filter(Boolean).join(' · ')),
+        h('div', { class: 'chips' }, k.urgent ? chip('URGENT', 'bad') : null, k.open ? h('span', { class: 'chip' }, k.age + ' hari') : null, k.complaintId ? h('span', { class: 'chip wait' }, k.complaintId) : null,
+          k.infoMe ? chip('Informasi — ditangani SL', 'info') : null,
+          can('callCenter') && (k.category === 'Part' || k.category === 'Service') ? chip(k.bmDone ? 'BM ✓ diinfokan' : 'Belum diinfokan ke BM', k.bmDone ? 'ok' : 'bad') : null),
+        h('div', { class: 'kc-desc' }, k.request),
+        k.assignedTo ? h('div', { class: 'small muted' }, 'Ditangani: ' + k.assignedTo + (k.cc ? ' · cc ' + k.cc : '')) : null,
+        k.action || k.kcAction ? h('div', { class: 'small ok-text' }, 'Tindakan: ' + (k.action || k.kcAction)) : null),
+      isOpen ? h('div', { class: 'kc-more' },
+        kvRow('Kontak', [k.contact, k.phone].filter(Boolean).join(' · ')), kvRow('Unit', [k.unit, k.sn ? 'SN ' + k.sn : ''].filter(Boolean).join(' ')), kvRow('Lokasi', k.location), kvRow('Dicatat oleh', k.createdBy),
+        k.history ? h('pre', { class: 'log' }, k.history) : null,
+        h('div', { class: 'row-btns' }, k.phone ? h('a', { class: 'btn small', href: 'tel:' + telOf(k.phone) }, '☎ Telepon') : null, waOf(k.phone) ? h('a', { class: 'btn small', href: waOf(k.phone), target: '_blank', rel: 'noopener' }, 'Chat customer') : null,
+          can('callCenter') ? h('button', { type: 'button', class: 'btn small', onclick: function () { copyText(ciWaText(k)); } }, '⧉ Salin pesan WA') : null,
+          can('callCenter') && (k.category === 'Part' || k.category === 'Service') && !k.bmDone ? h('button', { type: 'button', class: 'btn small primary', onclick: function () { ciMarkBm(k); } }, '✓ Sudah diinfokan ke BM') : null,
+          k.complaintId && can('complaintView') ? h('button', { type: 'button', class: 'btn small', onclick: function () { openComplaints('all', k.complaintId); } }, 'Lihat keluhan') : null),
+        form || (k.open && !k.canHandle && k.status !== 'Jadi keluhan' ? h('p', { class: 'hint' }, (k.infoMe ? 'Informasi untuk Admin PS (mis. siapkan quotation service). ' : 'Hanya dilihat — ') + 'Ditangani & ditutup oleh ' + (k.category === 'Service' ? 'Service Leader cabang' : k.category === 'Part' ? 'Admin PS / PSSR cabang' : 'Call Center') + '.') : null)) : null);
+  }
+  function exportCallInXlsx(rows) {
+    var out = [['No. Call In', 'Tanggal', 'Masuk via', 'Cabang', 'Kategori', 'Urgent', 'Customer', 'Contact', 'Telepon', 'Unit', 'Serial No', 'Lokasi', 'Permintaan', 'Ditangani', 'CC', 'Status', 'Tindakan', 'No. Keluhan', 'Diteruskan WA', 'Update oleh', 'Update', 'Selesai', 'Waktu selesai (jam)', 'Dicatat oleh']];
+    rows.forEach(function (k) { out.push([k.id, k.date, k.source, k.branch, k.category, k.urgent ? 'Ya' : '', k.customer, k.contact, k.phone, k.unit, k.sn, k.location, k.request, k.assignedTo, k.cc,
+      k.status === 'Jadi keluhan' && k.kcStatus ? 'Keluhan ' + k.kcStatus : k.status, k.action || k.kcAction || '', k.complaintId, k.waAt, k.updatedBy, k.updatedAt, k.closedAt, k.hours == null ? '' : k.hours, k.createdBy]); });
+    saveBlob(makeXlsx([{ name: 'Call In', rows: out, widths: [14, 16, 10, 8, 10, 7, 26, 18, 14, 16, 14, 16, 40, 22, 18, 16, 36, 13, 16, 16, 16, 16, 10, 16] }]), 'Call_In_' + S.session.company + '_' + todayISO() + '.xlsx');
+    toast('Excel Call In diunduh', 'ok');
+  }
+
   function viewQueue() {
     var q = myQueue(), sent = store.get(KEY.sent, []).filter(function (x) { return x.company === S.session.company && x.username === S.session.user.username; });
     return h('div', null,
@@ -2748,7 +3003,7 @@
   window.addEventListener('online', function () { renderStatus(); syncQueue(); });
   window.addEventListener('offline', renderStatus);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { syncQueue(); if (Date.now() - lastPoll > 20000) pollCounts(true); } });
-  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.openFilter && S.session) { var f = e.data.openFilter; if (f === 'myfudue') openQuotes('due'); else if (f === 'cc') openCc('call'); else if (f === 'complaints') openComplaints(can('callCenter') ? 'open' : 'mine'); else openList(f); } });
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.openFilter && S.session) { var f = e.data.openFilter; if (f === 'myfudue') openQuotes('due'); else if (f === 'cc') openCc('call'); else if (f === 'complaints') openComplaints(can('callCenter') ? 'open' : 'mine'); else if (f === 'callIn') openCallIn(); else openList(f); } });
   var lastWide = wide();
   window.addEventListener('resize', debounce(function () { if (wide() !== lastWide) { lastWide = wide(); if (S.view !== 'mhc') render(); } }, 200));
   setInterval(syncQueue, 60000);
