@@ -1,7 +1,7 @@
 /* Service Worker — menyimpan aplikasi di HP supaya bisa dibuka tanpa sinyal.
    File aplikasi diambil dari internet dulu (versi terbaru), cache hanya dipakai saat offline.
    Naikkan CACHE setiap kali file aplikasi diubah. */
-var CACHE = 'asi-v2.7.1';
+var CACHE = 'asi-v2.8.1';
 var SHELL = ['./', './index.html', './app.js', './styles.css', './config.js', './manifest.webmanifest',
              './icons/icon-192.png', './icons/icon-512.png', './logos/ipe.png', './logos/ike.png'];
 
