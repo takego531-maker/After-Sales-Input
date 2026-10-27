@@ -1,4 +1,4 @@
-/* After Sales Input v2.1 — Machine Health Check. Offline-first (IndexedDB), tampilan HP & kantor. */
+/* ASPIRE v2.12 — After Sales Platform · IPE & IKE. Offline-first (IndexedDB), tampilan HP & kantor. */
 (function () {
   'use strict';
   var CFG = window.APP_CONFIG || {};
@@ -174,7 +174,7 @@
     if (!document.hidden) toast('🔔 ' + msg, 'ok');
     if (document.hidden && window.Notification && Notification.permission === 'granted' && navigator.serviceWorker) {
       navigator.serviceWorker.ready.then(function (reg) {
-        reg.showNotification('After Sales Input', { body: msg, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'asi-counts', renotify: true, data: { filter: news[0].filter } });
+        reg.showNotification('ASPIRE', { body: msg, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'asi-counts', renotify: true, data: { filter: news[0].filter } });
       }).catch(function () { });
     }
   }
@@ -368,8 +368,9 @@
       }).catch(function (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Masuk'; });
     }
     return h('div', { class: 'login-wrap' },
-      h('div', { class: 'login-hero' }, h('div', { class: 'logo-pair' }, h('img', { src: 'logos/ipe.png', alt: 'IPE' }), h('img', { src: 'logos/ike.png', alt: 'IKE' })),
-        h('h1', null, 'After Sales Input'), h('p', null, 'Machine Health Check')),
+      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/icon-192.png', alt: 'ASPIRE' }),
+        h('h1', null, 'ASPIRE'), h('p', null, 'After Sales Platform · IPE & IKE'),
+        h('div', { class: 'logo-pair' }, h('img', { src: 'logos/ipe.png', alt: 'IPE' }), h('img', { src: 'logos/ike.png', alt: 'IKE' }))),
       h('form', { class: 'card', onsubmit: submit }, h('label', { class: 'lbl' }, 'Company'), segmented(['IPE', 'IKE'], company, function (v) { company = v; }),
         h('label', { class: 'lbl' }, 'Username'), user, h('label', { class: 'lbl' }, 'Password'), pass, btn,
         !online() ? h('p', { class: 'hint warn-text' }, 'Anda sedang offline. Login butuh internet (sekali saja).') : null,

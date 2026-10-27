@@ -4,7 +4,7 @@
   --ink: #16181d;
   --muted: #5f6672;
   --line: #dde1e7;
-  --accent: #f2a900;
+  --accent: #f39200;
   --accent-ink: #1c1f24;
   --dark: #1c1f24;
   --ok: #1b7f4b;
@@ -71,7 +71,7 @@ h2 { font-size: 17px; margin-bottom: 12px; }
 textarea.inp { min-height: 90px; resize: vertical; }
 select.inp { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position: calc(100% - 20px) 21px, calc(100% - 15px) 21px; background-size: 5px 5px; background-repeat: no-repeat; }
-.inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(242,169,0,.25); }
+.inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(243,146,0,.25); }
 .inp.num { text-align: right; font-variant-numeric: tabular-nums; }
 .inp.bad { border-color: var(--err); background: var(--err-bg); }
 .inp.filled { background: var(--ok-bg); transition: background 1.5s; }
@@ -142,7 +142,8 @@ select.inp { background-image: linear-gradient(45deg, transparent 50%, var(--mut
 /* ---------- login ---------- */
 .login-wrap { max-width: 420px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 40px) 16px 24px; }
 .login-hero { text-align: center; margin-bottom: 20px; }
-.login-hero h1 { font-size: 22px; }
+.login-hero .app-mark { width: 84px; height: 84px; border-radius: 20px; display: block; margin: 0 auto 12px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.login-hero h1 { font-size: 26px; letter-spacing: 3px; font-weight: 800; }
 .login-hero p { color: var(--muted); margin: 4px 0 0; }
 .login-wrap .btn.primary { margin-top: 18px; }
 .foot { text-align: center; font-size: 12px; color: var(--muted); }
@@ -245,8 +246,8 @@ select.inp { background-image: linear-gradient(45deg, transparent 50%, var(--mut
 .kv b { text-align: right; }
 
 .logo.img { background: #fff; padding: 3px; object-fit: contain; }
-.logo-pair { display: flex; justify-content: center; gap: 14px; margin-bottom: 12px; }
-.logo-pair img { width: 60px; height: 60px; object-fit: contain; }
+.logo-pair { display: flex; justify-content: center; gap: 14px; margin-top: 14px; }
+.logo-pair img { width: 44px; height: 44px; object-fit: contain; }
 
 /* ================= v2.1 additions ================= */
 .chip.info { background: var(--info-bg); color: #2b4a73; }
@@ -361,7 +362,7 @@ select.inp { background-image: linear-gradient(45deg, transparent 50%, var(--mut
 /* v2.5 — monitoring quotation & follow up */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 6px 0 12px; }
 .kpi { display: grid; gap: 2px; text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; font: inherit; color: inherit; min-width: 0; }
-.kpi.on { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(242,169,0,.25); }
+.kpi.on { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(243,146,0,.25); }
 .kpi-l { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
 .kpi-v { font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .kpi-s { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
