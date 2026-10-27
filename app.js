@@ -368,7 +368,7 @@
       }).catch(function (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Masuk'; });
     }
     return h('div', { class: 'login-wrap' },
-      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/icon-192.png', alt: 'ASPIRE' }),
+      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.12.1', alt: 'ASPIRE' }),
         h('h1', null, 'ASPIRE'), h('p', null, 'After Sales Platform · IPE & IKE'),
         h('div', { class: 'logo-pair' }, h('img', { src: 'logos/ipe.png', alt: 'IPE' }), h('img', { src: 'logos/ike.png', alt: 'IKE' }))),
       h('form', { class: 'card', onsubmit: submit }, h('label', { class: 'lbl' }, 'Company'), segmented(['IPE', 'IKE'], company, function (v) { company = v; }),
