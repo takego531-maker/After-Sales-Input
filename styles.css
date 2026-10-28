@@ -462,3 +462,15 @@ pre.log.wa { font-size: 13.5px; }
 .tl-reporting { background: #5f6672; } .tl-standby { background: #c0322b; }
 .tl-axis { position: relative; height: 16px; font-size: 10px; color: var(--muted); }
 .tl-tick { position: absolute; transform: translateX(-50%); top: 2px; }
+/* v2.13.1 MAR: beberapa jenis waktu dalam satu form */
+.mar-rows { display: grid; gap: 8px; margin: 6px 0 8px; }
+.mar-row { border: 1px solid var(--line); border-radius: 12px; padding: 8px; display: grid; gap: 6px; background: var(--bg); min-width: 0; }
+.mar-row-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mar-rn { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--dark); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+.mar-rcat { flex: 1; min-width: 0; }
+.mar-row-time { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mar-rt { display: grid; gap: 2px; min-width: 0; }
+.mar-row .inp { min-width: 0; width: 100%; box-sizing: border-box; }
+.mar-rdur { flex: none; font-weight: 600; }
+.icon-btn.sm { width: 34px; height: 34px; font-size: 14px; flex: none; }
+.mar-rows-tot { font-weight: 600; font-size: 14px; }

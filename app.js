@@ -368,7 +368,7 @@
       }).catch(function (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Masuk'; });
     }
     return h('div', { class: 'login-wrap' },
-      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.13.0', alt: 'ASPIRE' }),
+      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.13.1', alt: 'ASPIRE' }),
         h('h1', null, 'ASPIRE'), h('p', null, 'After Sales Platform · IPE & IKE'),
         h('div', { class: 'logo-pair' }, h('img', { src: 'logos/ipe.png', alt: 'IPE' }), h('img', { src: 'logos/ike.png', alt: 'IKE' }))),
       h('form', { class: 'card', onsubmit: submit }, h('label', { class: 'lbl' }, 'Company'), segmented(['IPE', 'IKE'], company, function (v) { company = v; }),
@@ -2074,7 +2074,16 @@
   }
   function marForm(list) {
     var M = S.mar, cfg = marCfg(), f = M.form;
-    if (!f.START && list.length) { var last = list.slice().sort(function (a, b) { return hm2min(b.stop) - hm2min(a.stop); })[0]; if (last && last.stop) f.START = last.stop; }
+    // v2.13.1: satu form = data pekerjaan (diisi sekali) + beberapa baris jenis waktu (Travel / Working / …), disimpan sekaligus
+    if (!f.ROWS || !f.ROWS.length) {
+      var st0 = f.START;
+      if (!st0 && list.length) { var last = list.filter(function (x) { return !x.absence; }).sort(function (a, b) { return hm2min(b.stop) - hm2min(a.stop); })[0]; if (last && last.stop) st0 = last.stop; }
+      f.ROWS = [{ CAT: f.JOB_TYPE === 'Training' ? 'Training' : (f.CAT || 'Working'), START: st0 || '', STOP: f.STOP || '', NOTE: '' }];
+    }
+    var R = f.ROWS;
+    if (R.length === 1 && !R[0].START && list.length) {   // data hari itu baru termuat: lanjutkan dari jam selesai terakhir
+      var lastA = list.filter(function (x) { return !x.absence; }).sort(function (a, b) { return hm2min(b.stop) - hm2min(a.stop); })[0]; if (lastA && lastA.stop) R[0].START = lastA.stop;
+    }
     var fld = function (label, key, o) {
       o = o || {};
       var inp = o.textarea ? h('textarea', { class: 'inp', rows: 2 }) : h('input', { class: 'inp', type: o.type || 'text', value: f[key] || '', placeholder: o.ph || '' });
@@ -2083,19 +2092,17 @@
       inp.addEventListener('input', function () { f[key] = inp.value; if (o.live) o.live(); });
       return h('div', { class: 'field' + (o.half ? ' half' : '') }, h('label', { class: 'lbl', for: inp.id }, label, o.req ? h('span', { class: 'req' }, ' *') : null), inp);
     };
-    var durEl = h('div', { class: 'mar-dur' });
-    var showDur = function () { var d = marDur(f.START, f.STOP); durEl.textContent = isNaN(d) ? '' : 'Durasi ' + fmtH(d) + (hm2min(f.STOP) <= hm2min(f.START) ? ' (lewat tengah malam)' : ''); };
-    showDur();
     var subs = (cfg.jobTypes[f.JOB_TYPE] || []);
     var jt = h('select', { class: 'inp', id: 'mar-JOB_TYPE', onchange: function (e) {
       f.JOB_TYPE = e.target.value; var st = cfg.jobTypes[f.JOB_TYPE] || []; f.SUB_TYPE = st.length === 1 ? st[0] : '';
-      if (f.JOB_TYPE === 'Training') f.CAT = 'Training';
+      if (f.JOB_TYPE === 'Training') R.forEach(function (r) { r.CAT = 'Training'; });
       render();
     } }, h('option', { value: '' }, '— Pilih —'), Object.keys(cfg.jobTypes).map(function (k) { return h('option', { value: k, selected: k === f.JOB_TYPE }, k); }));
     var st = h('select', { class: 'inp', id: 'mar-SUB_TYPE', disabled: !subs.length, onchange: function (e) { f.SUB_TYPE = e.target.value; } },
       h('option', { value: '' }, subs.length ? '— Pilih —' : 'Pilih Job Type dulu'), subs.map(function (k) { return h('option', { value: k, selected: k === f.SUB_TYPE }, k); }));
     var stat = h('select', { class: 'inp', id: 'mar-STATUS', onchange: function (e) { f.STATUS = e.target.value; } }, cfg.status.map(function (k) { return h('option', { value: k, selected: k === f.STATUS }, k); }));
-    var needCust = cfg.noCustomerCats.indexOf(f.CAT) < 0 && f.JOB_TYPE !== 'Training';
+    var custCat = function (c) { return cfg.noCustomerCats.indexOf(c) < 0; };
+    var needCust = f.JOB_TYPE !== 'Training' && R.some(function (r) { return custCat(r.CAT); });
     var setUnit = function (o) { Object.keys(o).forEach(function (k) { f[k] = o[k] || ''; }); render(); };
     var scPick = picker('Pilih Call ID (Service Call SAP)', S.boot.serviceCalls || [], function (r) { return r.join(' '); },
       function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0]), ' · ', r[1] || '-'), h('div', { class: 'pick-sub' }, [r[2] && 'SN ' + r[2], r[3], r[5]].filter(Boolean).join(' — '))]; },
@@ -2103,38 +2110,87 @@
     var popPick = picker('Atau cari unit dari Machine Population', S.boot.population || [], function (r) { return r.slice(0, 5).join(' '); },
       function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0] || '(tanpa SN)'), ' · ', [r[1], r[2]].filter(Boolean).join(' ')), h('div', { class: 'pick-sub' }, [r[3], r[4]].filter(Boolean).join(' — '))]; },
       function (r) { setUnit({ SN: r[0], BRAND: r[1], MODEL: r[2], CUSTOMER: r[3], LOCATION: r[4] }); }, 'Ketik SN / customer / model…');
-    var save = function () {
+
+    // ---- rincian waktu ----
+    var others = function () { return (M.date === f.DATE ? (M.rows || []) : []).concat(marQueued(f.DATE)).filter(function (x) { return !x.absence; }); };
+    var totEl = h('div', { class: 'mar-rows-tot' });
+    var showTot = function () {
+      var t = 0, ot = 0, ok = 0;
+      R.forEach(function (r) { var d = marDur(r.START, r.STOP); if (!isNaN(d)) { t += d; ok++; ot += marOt(f.DATE, r.START, d); } });
+      totEl.textContent = ok ? 'Total ' + fmtH(Math.round(t * 100) / 100) + (ot ? ' · overtime ' + fmtH(Math.round(ot * 100) / 100) : '') + ' · ' + ok + ' kegiatan' : '';
+    };
+    var rowEls = R.map(function (r, i) {
+      var dur = h('span', { class: 'mar-rdur muted small' });
+      var showDur = function () { var d = marDur(r.START, r.STOP); dur.textContent = isNaN(d) ? '' : fmtH(d) + (hm2min(r.STOP) <= hm2min(r.START) ? ' (lewat tengah malam)' : ''); showTot(); };
+      var cat = h('select', { class: 'inp', id: 'mar-r' + i + '-CAT', 'aria-label': 'Jenis waktu baris ' + (i + 1), onchange: function (e) { r.CAT = e.target.value; render(); } },
+        cfg.categories.map(function (c) { return h('option', { value: c, selected: c === r.CAT }, c); }));
+      var a = h('input', { class: 'inp', type: 'time', id: 'mar-r' + i + '-START', value: r.START || '', 'aria-label': 'Mulai baris ' + (i + 1) });
+      var z = h('input', { class: 'inp', type: 'time', id: 'mar-r' + i + '-STOP', value: r.STOP || '', 'aria-label': 'Selesai baris ' + (i + 1) });
+      a.addEventListener('input', function () { r.START = a.value; showDur(); });
+      z.addEventListener('input', function () {
+        var old = r.STOP; r.STOP = z.value; showDur();
+        var nx = R[i + 1]; if (nx && (!nx.START || nx.START === old)) { nx.START = z.value; var el = document.getElementById('mar-r' + (i + 1) + '-START'); if (el) { el.value = z.value; el.dispatchEvent(new Event('input')); } }
+      });
+      var note = h('input', { class: 'inp sm', id: 'mar-r' + i + '-NOTE', value: r.NOTE || '', placeholder: 'Keterangan (opsional), mis. perjalanan ke site / menunggu part' });
+      note.addEventListener('input', function () { r.NOTE = note.value; });
+      showDur();
+      return h('div', { class: 'mar-row' },
+        h('div', { class: 'mar-row-top' }, h('span', { class: 'mar-rn' }, i + 1), h('div', { class: 'mar-rcat' }, cat), dur,
+          R.length > 1 ? h('button', { type: 'button', class: 'icon-btn danger sm', title: 'Hapus baris', onclick: function () { R.splice(i, 1); render(); } }, '✕') : null),
+        h('div', { class: 'mar-row-time' }, h('div', { class: 'mar-rt' }, h('span', { class: 'muted small' }, 'Mulai'), a), h('div', { class: 'mar-rt' }, h('span', { class: 'muted small' }, 'Selesai'), z)),
+        note);
+    });
+    showTot();
+    var addRow = function () {
+      var lastR = R[R.length - 1] || {}, order = cfg.categories, nextCat = lastR.CAT === 'Travel' ? 'Working' : lastR.CAT === 'Working' ? 'Reporting' : (lastR.CAT || 'Working');
+      if (f.JOB_TYPE === 'Training') nextCat = 'Training';
+      if (order.indexOf(nextCat) < 0) nextCat = order[0];
+      R.push({ CAT: nextCat, START: lastR.STOP || '', STOP: '', NOTE: '' }); render();
+      setTimeout(function () { var el = document.getElementById('mar-r' + (R.length - 1) + '-STOP'); if (el) el.focus(); }, 50);
+    };
+
+    var save = function (ev) {
       var errs = [];
-      if (!f.DATE) errs.push('Tanggal'); if (isNaN(marDur(f.START, f.STOP))) errs.push('Start/Stop Time');
+      if (!f.DATE) errs.push('Tanggal');
       if (!f.JOB_TYPE) errs.push('Job Type'); if (!f.SUB_TYPE) errs.push('Job Sub Type'); if (!f.STATUS) errs.push('Status');
       if (!String(f.DESC || '').trim()) errs.push('Jobs Description'); if (needCust && !String(f.CUSTOMER || '').trim()) errs.push('Customer');
+      R.forEach(function (r, i) { if (isNaN(marDur(r.START, r.STOP))) errs.push('Baris ' + (i + 1) + ': jam mulai / selesai'); });
       if (errs.length) return toast('Lengkapi: ' + errs.join(', '), 'err');
-      var d = marDur(f.START, f.STOP); if (d > 16) return toast('Satu kegiatan maksimal 16 jam — pecah jadi beberapa kegiatan', 'err');
-      var s0 = hm2min(f.START), e0 = s0 + d * 60, all = (M.date === f.DATE ? (M.rows || []) : []).concat(marQueued(f.DATE));
-      var clash = all.filter(function (x) { var a = hm2min(x.start), b = a + (x.hours || 0) * 60; return a < e0 && s0 < b; })[0];
-      if (clash) return toast('Bertabrakan dengan ' + clash.start + '–' + clash.stop + ' (' + clash.cat + ')', 'err');
-      var v = Object.assign({}, f), id = uid();
-      saveItem({ id: id, kind: 'mar', company: S.session.company, username: S.session.user.username, createdAt: Date.now(), status: 'pending',
-        payload: { values: v, branch: S.session.user.branch }, summary: { title: 'MAR ' + fmtDate(v.DATE) + ' · ' + v.START + '–' + v.STOP, sub: [v.CAT, v.SUB_TYPE, v.CUSTOMER || v.DESC].filter(Boolean).join(' · ') } })
-        .then(function () {
-          // kegiatan berikutnya biasanya lanjutan pekerjaan yang sama
-          M.form = Object.assign(newMarForm(), { DATE: v.DATE, START: v.STOP, JOB_TYPE: v.JOB_TYPE, SUB_TYPE: v.SUB_TYPE, STATUS: v.STATUS, CUSTOMER: v.CUSTOMER, BRAND: v.BRAND, MODEL: v.MODEL, SN: v.SN, LOCATION: v.LOCATION, CALL_ID: v.CALL_ID, MHC_NO: v.MHC_NO, DESC: v.DESC });
-          M.date = v.DATE; render(); toast((online() ? 'Kegiatan disimpan — mengirim…' : 'Tersimpan di HP — terkirim saat online') + ' Lanjut isi kegiatan berikutnya mulai ' + v.STOP + '.', 'ok');
-          var fe = document.getElementById('mar-form'); if (fe) fe.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          syncQueue().then(function () { if (S.view === 'mar') loadMarDay(); });
-        });
+      var spans = R.map(function (r, i) { var d = marDur(r.START, r.STOP), s0 = hm2min(r.START); return { i: i, r: r, d: d, a: s0, b: s0 + d * 60 }; });
+      var long = spans.filter(function (x) { return x.d > 16; })[0];
+      if (long) return toast('Baris ' + (long.i + 1) + ': satu kegiatan maksimal 16 jam', 'err');
+      for (var p = 0; p < spans.length; p++) for (var q = p + 1; q < spans.length; q++) {
+        if (spans[p].a < spans[q].b && spans[q].a < spans[p].b) return toast('Baris ' + (p + 1) + ' dan ' + (q + 1) + ' jamnya bertabrakan', 'err');
+      }
+      var ex = others();
+      for (var k = 0; k < spans.length; k++) {
+        var c = ex.filter(function (x) { var a0 = hm2min(x.start), b0 = a0 + (x.hours || 0) * 60; return a0 < spans[k].b && spans[k].a < b0; })[0];
+        if (c) return toast('Baris ' + (k + 1) + ' bertabrakan dengan ' + c.start + '–' + c.stop + ' (' + c.cat + ')', 'err');
+      }
+      var btn = ev && ev.currentTarget; if (btn) btn.disabled = true;
+      var shared = Object.assign({}, f); delete shared.ROWS;
+      var items = spans.sort(function (x, y) { return x.a - y.a; }).map(function (x) {
+        var v = Object.assign({}, shared, { CAT: x.r.CAT, START: x.r.START, STOP: x.r.STOP, REMARKS: [String(x.r.NOTE || '').trim(), String(f.REMARKS || '').trim()].filter(Boolean).join(' · ') });
+        return { id: uid(), kind: 'mar', company: S.session.company, username: S.session.user.username, createdAt: Date.now(), status: 'pending',
+          payload: { values: v, branch: S.session.user.branch }, summary: { title: 'MAR ' + fmtDate(v.DATE) + ' · ' + v.START + '–' + v.STOP, sub: [v.CAT, v.SUB_TYPE, v.CUSTOMER || v.DESC].filter(Boolean).join(' · ') } };
+      });
+      items.reduce(function (pr, it) { return pr.then(function () { return saveItem(it); }); }, Promise.resolve()).then(function () {
+        var lastV = items[items.length - 1].payload.values;
+        // form berikutnya: data pekerjaan tetap (biasanya lanjutan pekerjaan yang sama), satu baris baru mulai dari jam selesai terakhir
+        M.form = Object.assign(newMarForm(), { DATE: lastV.DATE, JOB_TYPE: f.JOB_TYPE, SUB_TYPE: f.SUB_TYPE, STATUS: f.STATUS, CUSTOMER: f.CUSTOMER, BRAND: f.BRAND, MODEL: f.MODEL, SN: f.SN, LOCATION: f.LOCATION, CALL_ID: f.CALL_ID, MHC_NO: f.MHC_NO, DESC: f.DESC });
+        M.form.ROWS = [{ CAT: f.JOB_TYPE === 'Training' ? 'Training' : 'Working', START: lastV.STOP, STOP: '', NOTE: '' }];
+        M.date = lastV.DATE; render();
+        toast((online() ? items.length + ' kegiatan disimpan — mengirim…' : items.length + ' kegiatan tersimpan di HP — terkirim saat online'), 'ok');
+        window.scrollTo(0, 0);
+        syncQueue().then(function () { if (S.view === 'mar') loadMarDay(); });
+      }).catch(function (e) { if (btn) btn.disabled = false; toast('Gagal menyimpan: ' + e.message, 'err'); });
     };
     var acts0 = list.filter(function (x) { return !x.absence; }).length;
-    return h('div', { class: 'card mar-form', id: 'mar-form' }, h('h2', null, acts0 ? '＋ Tambah kegiatan ke-' + (acts0 + 1) : '＋ Tambah kegiatan'),
-      h('p', { class: 'muted small' }, 'Isi satu kegiatan per jam mulai–selesai, lalu simpan. Form langsung siap untuk kegiatan berikutnya dan jam mulai melanjutkan jam selesai sebelumnya.'),
-      h('label', { class: 'lbl' }, 'Jenis waktu', h('span', { class: 'req' }, ' *')),
-      segmented(cfg.categories, f.CAT, function (c) { f.CAT = c; render(); }, 'mar-cat'),
+    return h('div', { class: 'card mar-form', id: 'mar-form' }, h('h2', null, acts0 ? '＋ Tambah kegiatan (sudah ' + acts0 + ' hari ini)' : '＋ Tambah kegiatan'),
+      h('p', { class: 'muted small' }, 'Isi data pekerjaan sekali, lalu rincian waktunya per baris (Travel, Working, Reporting, Standby…). Semua baris tersimpan sekaligus.'),
       h('div', { class: 'grid2' },
-        h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Tanggal'), h('input', { class: 'inp', type: 'date', value: f.DATE, max: todayISO(), onchange: function (e) { f.DATE = e.target.value; } })),
+        h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Tanggal'), h('input', { class: 'inp', type: 'date', value: f.DATE, max: todayISO(), onchange: function (e) { f.DATE = e.target.value; render(); } })),
         h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Hari'), h('div', { class: 'ro' }, f.DATE ? cfg.days[dowOf(f.DATE)] : '—')),
-        fld('Start Time', 'START', { type: 'time', half: true, req: true, live: showDur }), fld('Stop Time', 'STOP', { type: 'time', half: true, req: true, live: showDur })),
-      durEl,
-      h('div', { class: 'grid2' },
         h('div', { class: 'field half' }, h('label', { class: 'lbl', for: 'mar-JOB_TYPE' }, 'Job Type', h('span', { class: 'req' }, ' *')), jt),
         h('div', { class: 'field half' }, h('label', { class: 'lbl', for: 'mar-SUB_TYPE' }, 'Job Sub Type', h('span', { class: 'req' }, ' *')), st),
         h('div', { class: 'field half' }, h('label', { class: 'lbl', for: 'mar-STATUS' }, 'Status', h('span', { class: 'req' }, ' *')), stat)),
@@ -2145,9 +2201,11 @@
         fld('Brand', 'BRAND', { half: true }), fld('Model', 'MODEL', { half: true }), fld('Location', 'LOCATION')),
       f.MHC_NO ? h('div', { class: 'banner info' }, 'Terhubung ke ' + f.MHC_NO, h('button', { type: 'button', class: 'linkbtn', onclick: function () { f.MHC_NO = ''; render(); } }, 'lepas')) : null,
       fld('Jobs Description', 'DESC', { textarea: true, req: true }), fld('Remarks', 'REMARKS', { textarea: true }),
-      h('button', { type: 'button', class: 'btn primary block', onclick: save }, 'Simpan kegiatan & lanjut berikutnya'));
+      h('h3', { class: 'sec-t' }, 'Rincian waktu', h('span', { class: 'req' }, ' *')),
+      h('div', { class: 'mar-rows' }, rowEls),
+      h('div', { class: 'row-btns' }, h('button', { type: 'button', class: 'btn small', onclick: addRow }, '＋ Tambah baris'), totEl),
+      h('button', { type: 'button', class: 'btn primary block', onclick: save }, R.length > 1 ? 'Simpan semua kegiatan (' + R.length + ')' : 'Simpan kegiatan'));
   }
-
   /* ---------- Review / download MAR tim ---------- */
   /* ---------- MAR: tidak masuk, riwayat, rekap utilisasi ---------- */
   function marAbsList() { return marCfg().absence || ['Cuti', 'Sakit', 'Ijin', 'Ijin ½ hari', 'Dinas / Training luar']; }
