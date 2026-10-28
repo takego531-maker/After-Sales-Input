@@ -450,3 +450,15 @@ pre.log.wa { font-size: 13.5px; }
 .promo-box { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; display: grid; gap: 4px; }
 .promo-card.on { border-color: var(--accent); }
 .fchip .fn.muted-n { background: #7a808a; }
+/* v2.13 Q10 jenis risiko */
+.ck-riskwrap { display: grid; gap: 6px; }
+.ck-risk { margin: 0; }
+.ck-risk .fchip { font-size: 13px; }
+/* v2.13 MAR garis waktu harian */
+.mar-tl { margin: 4px 0 10px; }
+.tl-bar { position: relative; height: 22px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
+.tl-seg { position: absolute; top: 0; bottom: 0; border-right: 2px solid var(--card); }
+.tl-travel { background: #2f6db0; } .tl-working { background: #1b7f4b; } .tl-training { background: #7a4bb3; }
+.tl-reporting { background: #5f6672; } .tl-standby { background: #c0322b; }
+.tl-axis { position: relative; height: 16px; font-size: 10px; color: var(--muted); }
+.tl-tick { position: absolute; transform: translateX(-50%); top: 2px; }

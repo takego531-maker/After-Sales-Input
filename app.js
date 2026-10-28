@@ -1,4 +1,4 @@
-/* ASPIRE v2.12 — After Sales Platform · IPE & IKE. Offline-first (IndexedDB), tampilan HP & kantor. */
+/* ASPIRE v2.13 — After Sales Platform · IPE & IKE. Offline-first (IndexedDB), tampilan HP & kantor. */
 (function () {
   'use strict';
   var CFG = window.APP_CONFIG || {};
@@ -346,7 +346,7 @@
         h('span', { class: 'ti' }, icon), h('span', null, label), extra || null);
     }
     return h('nav', { class: 'tabs' }, tab('home', '⌂', 'Beranda'), can('mhcInput') ? tab('mhc', '＋', 'MHC Baru') : null,
-      canViewMhc() ? tab('list', '☰', invoiceOnly() ? 'MHC Selesai' : 'Daftar MHC') : null, tab('queue', '⇅', 'Antrean', h('span', { id: 'qbadge', class: 'badge', style: n ? '' : 'display:none' }, n)));
+      canViewMhc() ? tab('list', '☰', invoiceOnly() ? 'MHC Selesai' : ownOnly() ? 'MHC saya' : 'Daftar MHC') : null, tab('queue', '⇅', 'Antrean', h('span', { id: 'qbadge', class: 'badge', style: n ? '' : 'display:none' }, n)));
   }
   function doInstall() { if (!S.installEvt) return; S.installEvt.prompt(); S.installEvt.userChoice.then(function () { S.installEvt = null; renderHeader(); }); }
 
@@ -368,7 +368,7 @@
       }).catch(function (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Masuk'; });
     }
     return h('div', { class: 'login-wrap' },
-      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.12.1', alt: 'ASPIRE' }),
+      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.13.0', alt: 'ASPIRE' }),
         h('h1', null, 'ASPIRE'), h('p', null, 'After Sales Platform · IPE & IKE'),
         h('div', { class: 'logo-pair' }, h('img', { src: 'logos/ipe.png', alt: 'IPE' }), h('img', { src: 'logos/ike.png', alt: 'IKE' }))),
       h('form', { class: 'card', onsubmit: submit }, h('label', { class: 'lbl' }, 'Company'), segmented(['IPE', 'IKE'], company, function (v) { company = v; }),
@@ -423,6 +423,7 @@
           function () { openComplaints(can('callCenter') ? 'open' : 'mine'); }, C.complaintsOpen && !can('callCenter') ? 'accent' : '', C.complaintsOpen) : null,
         can('ccRekap') ? tile('▦', 'Rekap Survei', 'CSAT & NPS per cabang, mekanik, PSSR · Excel', function () { openCcRekap(); }) : null,
         invoiceOnly() ? tile('☎', 'MHC Selesai (Invoice)', 'Daftar MHC ber-invoice · kontak customer & PDF', inbox('invoice'), '', null)
+          : ownOnly() ? tile('☰', 'MHC saya', (C.mine ? C.mine + ' MHC · ' : '') + 'Lihat status MHC yang Anda buat: review SL, quotation, invoice · PDF', inbox('mine'))
           : canViewMhc() ? tile('☰', 'Daftar MHC', 'Cari MHC, lihat detail, download PDF', inbox(defaultFilter())) : null,
         can('marInput') ? tile('◷', 'Mechanics Activity Report', C.marMissing ? C.marMissing + ' hari kerja belum diisi — isi kegiatan atau catat Tidak masuk' : 'Catat kegiatan harian: travel, working, training, reporting, standby', function () { openMar(); if (C.marMissing) { S.mar.mode = 'hist'; loadMarHist(); } }, C.marMissing ? 'accent' : '', C.marMissing) : null,
         can('marReview|marExport') ? tile('◷', can('marReview') ? 'Review MAR' : 'Download MAR', can('marReview') ? 'Cek jam kerja & overtime mekanik, OK / revisi per hari' : 'Rekap MAR mekanik cabang · download Excel',
@@ -440,7 +441,9 @@
   // hak akses dari server bila ada; cadangan dari role (untuk sesi login versi lama)
   function allowed(perm, roles) { var P = perms(); return perm in P ? !!P[perm] : hasRole(roles); }
   function invoiceOnly() { var P = perms(); if ('mhcViewInvoice' in P) return !P.mhcView && !!P.mhcViewInvoice; var R = S.session.user.roles || []; return R.length > 0 && R.every(function (r) { return r === 'CALL_CENTER'; }); }
-  function canViewMhc() { var P = perms(); if ('mhcViewInvoice' in P) return !!(P.mhcView || P.mhcViewInvoice); return true; }
+  function canViewMhc() { var P = perms(); if ('mhcViewInvoice' in P) return !!(P.mhcView || P.mhcViewInvoice || P.mhcViewOwn); return true; }
+  // role MHC_INPUT: hanya melihat MHC buatannya sendiri
+  function ownOnly() { var P = perms(); return !P.mhcView && !P.mhcViewInvoice && !!P.mhcViewOwn; }
   function greetName(n) {
     var parts = String(n || '').split(/\s+/).filter(function (w) { return w.replace(/\./g, '').length > 1; });
     return parts[0] || String(n || '').split(' ')[0];
@@ -448,16 +451,20 @@
   function defaultFilter() { if (invoiceOnly()) return 'invoice'; if (can('slReview')) return 'review'; return can('partsJds') && (S.counts || {}).jds ? 'jds' : can('quoteCreate') ? 'needquote' : can('quoteStatus') ? (isPssrOnly() ? 'myopen' : 'open') : can('mhcInput') ? 'mine' : 'all'; }
 
   /* ================= wizard ================= */
-  var STEPS = ['Unit', 'Checklist', 'Summary', 'Parts', 'Foto', 'Kirim'];
+  // id langkah (dipakai stepErrors & isi tiap langkah): 0 Unit · 1 Checklist · 2 Summary · 3 Parts · 4 Foto · 5 Kirim
+  // urutan tampil (v2.13): Unit → Foto → Checklist → Parts → Summary → Kirim
+  var STEP_LABELS = ['Unit', 'Checklist', 'Summary', 'Parts', 'Foto', 'Kirim'], STEP_ORDER = [0, 4, 1, 3, 2, 5];
+  var STEPS = STEP_ORDER.map(function (id) { return STEP_LABELS[id]; });
   function draftOwner() { return 'draft|' + S.session.company + '|' + S.session.user.username; }
   function newDraft() {
     var u = S.session.user;
-    return { step: 0, values: { DATE: todayISO(), NIK: u.nik || store.get(KEY.nik, '') }, checklist: {}, captions: {}, photoSlots: [], parts: [], hasSig: false, hasTsig: false,
+    return { step: 0, stepOrder: 2, values: { DATE: todayISO(), NIK: u.nik || store.get(KEY.nik, '') }, checklist: {}, captions: {}, photoSlots: [], parts: [], hasSig: false, hasTsig: false,
              branch: (S.boot.branches.indexOf(u.branch) >= 0 ? u.branch : S.boot.branches[0]) || u.branch, open: {} };
   }
   function startWizard() {
     if (!can('mhcInput')) return;
     var d = store.get(KEY.draft(S.session), null) || newDraft();
+    if (d.stepOrder !== 2) { d.step = Math.max(0, STEP_ORDER.indexOf(d.step || 0)); d.stepOrder = 2; }   // draft versi lama: nomor langkah urutan lama
     S.wiz = { d: d, thumbs: {}, partHits: null, partQ: '' };
     S.view = 'mhc'; render(); window.scrollTo(0, 0); loadThumbs();
   }
@@ -466,7 +473,7 @@
   function loadThumbs() {
     var d = S.wiz.d, keys = d.photoSlots.concat(sigSlotsOf(d));
     Promise.all(keys.map(function (slot) { return idb.get('photos', photoKey(draftOwner(), slot)).then(function (p) { if (p && S.wiz) S.wiz.thumbs[slot] = URL.createObjectURL(p.small || p.blob); }); }))
-      .then(function () { if (S.view === 'mhc' && S.wiz && (S.wiz.d.step === 4 || S.wiz.d.step === 5)) render(); });
+      .then(function () { if (S.view === 'mhc' && S.wiz && (STEP_ORDER[S.wiz.d.step] === 4 || STEP_ORDER[S.wiz.d.step] === 5)) render(); });
   }
   function discardDraft() {
     if (!confirm('Hapus draft MHC ini? Semua isian dan foto akan dihapus.')) return;
@@ -500,15 +507,15 @@
   function viewWizard() {
     var d = S.wiz.d, i = d.step;
     var steps = h('div', { class: 'steps' }, STEPS.map(function (t, k) {
-      var errs = k < 5 ? stepErrors(k) : [], ok = k < 5 && !errs.length && (k !== 3 || d.parts.length || !needsParts(d));
+      var id = STEP_ORDER[k], errs = id < 5 ? stepErrors(id) : [], ok = id < 5 && !errs.length && (id !== 3 || d.parts.length || !needsParts(d));
       return h('button', { class: 'st' + (k === i ? ' cur' : '') + (ok ? ' done' : ''), onclick: function () { d.step = k; saveDraft(); render(); window.scrollTo(0, 0); } },
         h('span', { class: 'st-n' }, ok && k !== i ? '✓' : k + 1), h('span', { class: 'st-t' }, t));
     }));
-    var body = [wizUnit, wizChecklist, wizSummary, wizParts, wizPhotos, wizReview][i]();
+    var body = [wizUnit, wizChecklist, wizSummary, wizParts, wizPhotos, wizReview][STEP_ORDER[i]]();
     var nav = h('div', { class: 'submit-bar two' },
       i > 0 ? h('button', { class: 'btn', onclick: function () { d.step--; saveDraft(); render(); window.scrollTo(0, 0); } }, '‹ Kembali') : h('button', { class: 'btn ghost', onclick: discardDraft }, 'Hapus draft'),
       i < 5 ? h('button', { class: 'btn primary', onclick: function () {
-        var errs = stepErrors(i);
+        var errs = stepErrors(STEP_ORDER[i]);
         if (errs.length) { toast('Lengkapi: ' + errs.slice(0, 3).join(', ') + (errs.length > 3 ? ' (+' + (errs.length - 3) + ')' : ''), 'err'); markBad(); return; }
         d.step++; saveDraft(); render(); window.scrollTo(0, 0);
       } }, 'Lanjut ›') : h('button', { class: 'btn primary', onclick: submitWizard }, 'Kirim ✓'));
@@ -520,7 +527,7 @@
     var d = S.wiz.d, val = d.values[key] == null ? '' : d.values[key], inp;
     if (opts.textarea) { inp = h('textarea', { class: 'inp', rows: opts.rows || 3, placeholder: opts.ph || '' }); inp.value = val; }
     else inp = h('input', { class: 'inp' + (opts.num ? ' num' : ''), type: opts.type || 'text', inputmode: opts.num ? 'decimal' : (opts.tel ? 'tel' : null), value: val, placeholder: opts.ph || '', autocomplete: 'off', list: opts.list || null });
-    inp.addEventListener('input', function () { d.values[key] = inp.value; inp.removeAttribute('data-missing'); saveDraftSoon(); if (key === 'NIK') store.set(KEY.nik, inp.value); });
+    inp.addEventListener('input', function () { d.values[key] = inp.value; inp.removeAttribute('data-missing'); saveDraftSoon(); if (key === 'NIK') store.set(KEY.nik, inp.value); if (opts.onInput) opts.onInput(inp.value); });
     if (opts.required && !String(val).trim()) inp.setAttribute('data-missing', '1');
     inp.id = 'w-' + key;
     return h('div', { class: 'field' + (opts.half ? ' half' : '') }, h('label', { class: 'lbl', for: inp.id }, label, opts.required ? h('span', { class: 'req' }, ' *') : null), inp);
@@ -592,7 +599,7 @@
     } }, h('option', { value: '' }, ph), opts.map(function (p) { return h('option', { value: p.name, selected: p.name === cur }, p.name + (p.nik ? ' · ' + p.nik : '') + (p.own === false ? ' · cabang ' + p.branch : '')); }));
     return h('div', { class: 'field' }, h('label', { class: 'lbl', for: sel.id }, label), sel);
   }
-  function inspRole() { var R = S.session.user.roles || []; return R.indexOf('MEKANIK') >= 0 ? 'Mekanik' : R.indexOf('PSSR') >= 0 ? 'PSSR' : 'Mekanik'; }
+  function inspRole() { var R = S.session.user.roles || []; return R.indexOf('MEKANIK') >= 0 ? 'Mekanik' : R.indexOf('PSSR') >= 0 ? 'PSSR' : R.indexOf('MHC_INPUT') >= 0 ? 'MHC Input' : 'Mekanik'; }
   function wizTeam() {
     var d = S.wiz.d, u = S.session.user, M = mhc(), v = d.values, asPssr = inspRole() === 'PSSR';
     var mech = (M.mechanics || []).filter(function (p) { return p.name !== u.name; }), pssr = M.pssr || [];
@@ -615,7 +622,7 @@
     var d = S.wiz.d, M = mhc(), total = 0, filled = 0, bad = 0;
     var setCond = function (it, c) { var x = d.checklist[it.col] || {}; x.c = c; d.checklist[it.col] = x; saveDraftSoon(); };
     M.groups.forEach(function (g) { g.items.forEach(function (it) { total++; var x = d.checklist[it.col]; if (x && x.c) filled++; if (x && x.c === 'BAD') bad++; }); });
-    var head = h('div', { class: 'card' }, h('h2', null, '2 · Checklist'),
+    var head = h('div', { class: 'card' }, h('h2', null, '3 · Checklist'),
       h('div', { class: 'prog' }, h('div', { class: 'prog-bar', style: 'width:' + Math.round(filled / total * 100) + '%' })),
       h('div', { class: 'muted small' }, filled + ' / ' + total + ' item terisi' + (bad ? ' · ' + bad + ' BAD' : '')));
     var cards = M.groups.map(function (g) {
@@ -642,7 +649,7 @@
   function wizSummary() {
     var d = S.wiz.d, M = mhc(), bads = [];
     M.groups.forEach(function (g) { g.items.forEach(function (it) { var x = d.checklist[it.col]; if (x && x.c === 'BAD') bads.push(it.label + ': ' + (x.r || '')); }); });
-    return h('div', null, h('div', { class: 'card' }, h('h2', null, '3 · Summary Service Report'),
+    return h('div', null, h('div', { class: 'card' }, h('h2', null, '5 · Summary Service Report'),
       bads.length ? h('div', { class: 'banner bad' }, h('div', null, h('b', null, bads.length + ' temuan BAD: '), bads.join(' · '))) : null,
       h('label', { class: 'lbl' }, 'Machine Status', h('span', { class: 'req' }, ' *')),
       h('div', { 'data-missing': d.values.STATUS ? null : '1' }, segmented(M.statusOptions, d.values.STATUS, function (v) { d.values.STATUS = v; saveDraft(); }, 'status')),
@@ -741,7 +748,7 @@
     var filledDef = def.filter(function (p) { return d.photoSlots.indexOf(p.slot) >= 0; }), nextDef = def.find(function (p) { return d.photoSlots.indexOf(p.slot) < 0; });
     var showDef = filledDef.concat(nextDef ? [nextDef] : []).sort(function (a, b) { return a.slot - b.slot; });
     return h('div', null,
-      h('div', { class: 'card' }, h('h2', null, '5 · Foto wajib'), h('p', { class: 'muted small' }, 'Tap kotak untuk memotret. Foto dikecilkan otomatis dan disimpan di HP sampai terkirim.'), h('div', { class: 'ph-grid' }, req.map(slotCard))),
+      h('div', { class: 'card' }, h('h2', null, '2 · Foto wajib'), h('p', { class: 'muted small' }, 'Tap kotak untuk memotret. Foto dikecilkan otomatis dan disimpan di HP sampai terkirim.'), h('div', { class: 'ph-grid' }, req.map(slotCard))),
       h('div', { class: 'card' }, h('h2', null, 'Foto kerusakan (' + filledDef.length + ' / ' + def.length + ')'), h('p', { class: 'muted small' }, 'Kotak baru muncul setiap satu foto terisi.'), h('div', { class: 'ph-grid' }, showDef.map(slotCard))));
   }
   /** Kanvas tanda tangan. opts: { get(): url|null, save(blob), clear() } */
@@ -776,11 +783,13 @@
     }, function () { toast('Lokasi tidak bisa diambil — izinkan akses lokasi di browser', 'warn'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   }
   function wizReview() {
-    var d = S.wiz.d, M = mhc(), all = [0, 1, 2, 3, 4, 5].map(stepErrors), v = d.values, cnt = { GOOD: 0, BAD: 0, 'N/A': 0 };
+    var d = S.wiz.d, M = mhc(), all = STEP_ORDER.map(stepErrors), v = d.values, cnt = { GOOD: 0, BAD: 0, 'N/A': 0 };
     M.groups.forEach(function (g) { g.items.forEach(function (it) { var x = d.checklist[it.col]; if (x && cnt[x.c] !== undefined) cnt[x.c]++; }); });
     var issues = [];
     all.forEach(function (e, i) { if (e.length) issues.push(h('button', { class: 'issue', onclick: function () { d.step = i; saveDraft(); render(); window.scrollTo(0, 0); } }, h('b', null, STEPS[i] + ': '), e.slice(0, 4).join(', ') + (e.length > 4 ? ' (+' + (e.length - 4) + ')' : ''), ' ›')); });
     if (!v.GPS && !d.gpsTried) { d.gpsTried = true; setTimeout(getGps, 300); }
+    // Nama Customer PIC = Contact Person di Data Unit (otomatis), kecuali sudah diganti manual
+    if (!d.picEdited && v.CONTACT) v.CUST_PIC = v.CONTACT;
     return h('div', null,
       h('div', { class: 'card' }, h('h2', null, '6 · Periksa & Kirim'),
         issues.length ? h('div', { class: 'banner warn col' }, h('b', null, 'Belum lengkap:'), issues) : h('div', { class: 'banner ok' }, 'Semua bagian sudah lengkap. Siap dikirim.'),
@@ -790,7 +799,8 @@
         kvRow('Parts', d.parts.length ? d.parts.length + ' part' : 'Tidak ada'), kvRow('Foto', d.photoSlots.length + ' foto')),
       h('div', { class: 'card', 'data-missing': d.hasTsig ? null : '1' }, h('h2', null, 'Tanda tangan Inspector', h('span', { class: 'req' }, ' *')),
         h('p', { class: 'muted small' }, 'Diperiksa oleh: ' + [S.session.user.name, v.TECH2, v.TECH3].filter(Boolean).join(', ')), signaturePad('tsig')),
-      h('div', { class: 'card' }, h('h2', null, 'Customer / Operator'), field('Nama Customer PIC', 'CUST_PIC'),
+      h('div', { class: 'card' }, h('h2', null, 'Customer / Operator'), field('Nama Customer PIC', 'CUST_PIC', { ph: 'Otomatis dari Contact Person', onInput: function (x) { d.picEdited = true; } }),
+        h('p', { class: 'muted small' }, d.picEdited || !v.CONTACT ? 'Isi nama customer / operator yang tanda tangan.' : 'Terisi otomatis dari Contact Person. Ganti bila yang tanda tangan orang lain (mis. operator).'),
         h('label', { class: 'lbl' }, 'Tanda tangan customer'), signaturePad('sig')),
       h('div', { class: 'card' }, h('h2', null, 'Lokasi GPS'), h('div', { class: 'row-btns' }, h('span', { class: v.GPS ? 'ok-text' : 'muted' }, v.GPS || 'Belum diambil'),
         h('button', { type: 'button', class: 'btn small', onclick: getGps }, v.GPS ? 'Ambil ulang' : 'Ambil lokasi'))),
@@ -842,7 +852,7 @@
   function viewList() {
     var L = S.list, C = S.counts || {};
     if (!L.filter) L.filter = defaultFilter();
-    var filters = invoiceOnly() ? FILTERS.filter(function (f) { return f[0] === 'invoice'; })
+    var filters = invoiceOnly() ? FILTERS.filter(function (f) { return f[0] === 'invoice'; }) : ownOnly() ? FILTERS.filter(function (f) { return f[0] === 'mine'; })
       : FILTERS.filter(function (f) { return f[2] !== 'invOnly' && (!f[2] || (f[2] === 'pssrOnly' ? isPssrOnly() : f[2] === 'lateAll' ? can('quoteCreate|quoteStatus') && !isPssrOnly() : can(f[2]))); });
     var q = h('input', { class: 'inp', type: 'search', placeholder: 'Cari MHC No / customer / SN / Call ID / No. Quotation…', value: L.q, enterkeyhint: 'search' });
     var head = h('form', { class: 'card', onsubmit: function (e) { e.preventDefault(); L.q = q.value.trim(); loadList(); } },
@@ -1720,6 +1730,36 @@
 
   /* ---------- Cek List Quotation (pertanyaan PSSR ke customer) ---------- */
   function qckList() { return (mhc() && mhc().qcheck) || []; }
+  // keterangan berpilihan (Q10 risiko): disimpan sebagai "Pilihan A; Pilihan B — keterangan"
+  function ckSplitNote(q, txt) {
+    txt = String(txt || ''); var i = txt.indexOf(' — '), head = i >= 0 ? txt.slice(0, i) : txt, rest = i >= 0 ? txt.slice(i + 3) : '';
+    var parts = head.split(';').map(function (x) { return x.trim(); }).filter(Boolean);
+    var sel = parts.filter(function (x) { return q.opts.indexOf(x) >= 0; });
+    if (sel.length < parts.length) { sel = []; rest = txt; }   // teks lama tanpa pilihan: semuanya jadi keterangan
+    return { sel: sel, text: rest };
+  }
+  function ckJoinNote(sel, text) { text = String(text || '').trim(); return sel.join('; ') + (sel.length && text ? ' — ' : '') + text; }
+  function ckNoteOk(q, txt) {
+    if (!q.opts) return !!String(txt || '').trim();
+    var p = ckSplitNote(q, txt);
+    if (!p.sel.length && !p.text.trim()) return false;
+    return p.sel.indexOf('Lainnya') < 0 || !!p.text.trim();
+  }
+  function ckRiskPicker(q, W, edit) {
+    var p = ckSplitNote(q, W.notes[q.id]);
+    var upd = function () { W.notes[q.id] = ckJoinNote(p.sel, p.text); W.dirty = true; };
+    var chips = h('div', { class: 'chips ck-risk' }, q.opts.map(function (o) {
+      var on = p.sel.indexOf(o) >= 0;
+      return h('button', { type: 'button', class: 'fchip' + (on ? ' on' : ''), disabled: !edit, onclick: function () {
+        if (on) p.sel = p.sel.filter(function (x) { return x !== o; }); else p.sel = q.opts.filter(function (x) { return x === o || p.sel.indexOf(x) >= 0; });
+        upd(); render();
+      } }, (on ? '✓ ' : '') + o);
+    }));
+    var inp = h('input', { class: 'inp sm ck-note', id: 'ck-note-' + q.id, value: p.text, disabled: !edit,
+      placeholder: p.sel.indexOf('Lainnya') >= 0 ? 'Keterangan wajib — risiko apa?' : 'Keterangan (mis. nilai tunggakan, lama indent)' });
+    inp.addEventListener('input', function () { p.text = inp.value; upd(); });
+    return h('div', { class: 'ck-riskwrap' }, h('div', { class: 'muted small' }, 'Jenis risiko (boleh lebih dari satu):'), chips, inp);
+  }
   function ckCard(D, r, v) {
     var M = mhc(), F = M.f, g = function (k) { return F[k] >= 0 ? v[F[k]] : ''; };
     if (!can('quoteMonitor') || !quoteNos(g) || r.isOld || !D.checklist) return null;
@@ -1732,7 +1772,8 @@
     var item = function (q, i) {
       var a = W.ans[q.id] || '', bad = q.good && a && a !== q.good, needNote = q.note && a === q.note;
       var note = null;
-      if (needNote) {
+      if (needNote && q.opts && q.opts.length) note = ckRiskPicker(q, W, edit && q.kind !== 'close');
+      else if (needNote) {
         note = h('input', { class: 'inp sm ck-note', id: 'ck-note-' + q.id, placeholder: q.notePh, value: W.notes[q.id] || '', disabled: !edit || q.kind === 'close' });
         note.addEventListener('input', function () { W.notes[q.id] = note.value; W.dirty = true; });
       }
@@ -1743,7 +1784,7 @@
         note);
     };
     var save = function (ev) {
-      var miss = qual.filter(function (q) { return q.note && W.ans[q.id] === q.note && !String(W.notes[q.id] || '').trim(); });
+      var miss = qual.filter(function (q) { return q.note && W.ans[q.id] === q.note && !ckNoteOk(q, W.notes[q.id]); });
       if (miss.length) return toast(miss.map(function (q) { return q.id.toUpperCase() + ': ' + q.notePh; }).join(' · '), 'err');
       if (!online()) return toast('Butuh koneksi internet', 'warn');
       var btn = ev.currentTarget; btn.disabled = true; btn.textContent = 'Menyimpan…';
@@ -1915,6 +1956,21 @@
   function fmtH(h) { if (!h && h !== 0) return '—'; var m = Math.round(h * 60); return Math.floor(m / 60) + ' j' + (m % 60 ? ' ' + (m % 60) + ' m' : ''); }
   function dowOf(iso) { var p = String(iso).split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay(); }
   var MAR_CAT_TONE = { Travel: 'info', Working: 'ok', Training: 'wait', Reporting: '', Standby: 'bad' };
+  /** Garis waktu satu hari: setiap kegiatan satu blok berwarna sesuai jenis waktu */
+  function marTimeline(list) {
+    var acts = list.filter(function (x) { return !x.absence && !isNaN(hm2min(x.start)); });
+    if (!acts.length) return null;
+    var lo = 6 * 60, hi = 20 * 60;
+    acts.forEach(function (x) { var a = hm2min(x.start), b = a + (x.hours || 0) * 60; lo = Math.min(lo, Math.floor(a / 60) * 60); hi = Math.max(hi, Math.ceil(b / 60) * 60); });
+    hi = Math.min(hi, 48 * 60); var span = hi - lo, pct = function (m) { return ((m - lo) / span * 100).toFixed(2) + '%'; };
+    var ticks = []; for (var t = lo; t <= hi; t += 120) ticks.push(h('span', { class: 'tl-tick', style: 'left:' + pct(t) }, String(Math.floor(t / 60) % 24).padStart(2, '0')));
+    return h('div', { class: 'mar-tl' },
+      h('div', { class: 'tl-bar' }, acts.map(function (x) {
+        var a = hm2min(x.start), b = a + (x.hours || 0) * 60;
+        return h('span', { class: 'tl-seg tl-' + String(x.cat || '').toLowerCase(), style: 'left:' + pct(a) + ';width:' + ((b - a) / span * 100).toFixed(2) + '%', title: x.start + '–' + x.stop + ' ' + x.cat });
+      })),
+      h('div', { class: 'tl-axis' }, ticks));
+  }
   function newMarForm(prefill) {
     var f = { DATE: todayISO(), CAT: 'Working', START: '', STOP: '', JOB_TYPE: '', SUB_TYPE: '', STATUS: 'In Progress', CUSTOMER: '', BRAND: '', MODEL: '', SN: '', LOCATION: '', CALL_ID: '', MHC_NO: '', DESC: '', REMARKS: '' };
     return Object.assign(f, prefill || {});
@@ -1985,9 +2041,9 @@
       M.sum && M.sum.review === cfg.review.REVISE ? h('div', { class: 'banner bad col', style: 'margin-top:10px' }, h('b', null, 'Perlu revisi dari Service Leader'),
         h('span', null, (M.rows || []).map(function (r) { return r.reviewNote; }).filter(Boolean)[0] || ''), h('span', { class: 'small' }, 'Hapus kegiatan yang salah lalu input ulang.')) : null,
       M.sum && M.sum.wait === 0 && M.sum.n ? h('div', { class: 'banner ok', style: 'margin-top:10px' }, '✓ Sudah di-review OK oleh Service Leader') : null);
-    var acts = h('div', { class: 'card' }, h('h2', null, 'Kegiatan (' + list.length + ')'),
+    var acts = h('div', { class: 'card' }, h('h2', null, 'Kegiatan hari ini (' + list.length + ')'), marTimeline(list),
       M.loading ? h('p', { class: 'muted' }, 'Memuat…') : !online() && !M.rows ? h('p', { class: 'muted small' }, 'Offline — kegiatan yang sudah terkirim tidak bisa ditampilkan. Kegiatan baru tetap bisa dicatat.') : null,
-      !list.length && !M.loading ? h('p', { class: 'muted' }, 'Belum ada kegiatan di tanggal ini.') : null,
+      !list.length && !M.loading ? h('p', { class: 'muted' }, 'Belum ada kegiatan di tanggal ini. Satu hari bisa diisi beberapa kegiatan, misalnya Travel → Working → Reporting.') : null,
       list.map(function (x) {
         var canDel = x.queued || x.review !== cfg.review.OK;
         if (x.absence) return h('div', { class: 'qitem mar-act' }, h('div', { class: 'mar-time' }, h('b', null, '—')),
@@ -2014,7 +2070,7 @@
     var fullAbs = list.filter(function (x) { return x.absence && !marIsHalf(x.absence); })[0];
     var kind = h('div', { class: 'card mar-kind' }, segmented(['＋ Kegiatan', 'Tidak masuk'], M.kind === 'abs' ? 'Tidak masuk' : '＋ Kegiatan', function (x) { M.kind = x === 'Tidak masuk' ? 'abs' : 'act'; if (M.kind === 'abs') M.abs = { DATE: M.date, ABSENCE: '', REMARKS: '' }; render(); }, 'mar-kindsel'));
     var form = fullAbs ? h('div', { class: 'banner info' }, 'Tanggal ini tercatat ' + fullAbs.absence + '. Hapus catatan itu bila ternyata Anda bekerja.') : M.kind === 'abs' ? marAbsForm(list) : marForm(list);
-    return h('div', null, nav, sumCard, fullAbs ? null : kind, form, acts);
+    return h('div', null, nav, sumCard, acts, fullAbs ? null : kind, form);
   }
   function marForm(list) {
     var M = S.mar, cfg = marCfg(), f = M.form;
@@ -2063,11 +2119,14 @@
         .then(function () {
           // kegiatan berikutnya biasanya lanjutan pekerjaan yang sama
           M.form = Object.assign(newMarForm(), { DATE: v.DATE, START: v.STOP, JOB_TYPE: v.JOB_TYPE, SUB_TYPE: v.SUB_TYPE, STATUS: v.STATUS, CUSTOMER: v.CUSTOMER, BRAND: v.BRAND, MODEL: v.MODEL, SN: v.SN, LOCATION: v.LOCATION, CALL_ID: v.CALL_ID, MHC_NO: v.MHC_NO, DESC: v.DESC });
-          M.date = v.DATE; render(); toast(online() ? 'Kegiatan disimpan — mengirim…' : 'Tersimpan di HP — terkirim saat online', 'ok');
+          M.date = v.DATE; render(); toast((online() ? 'Kegiatan disimpan — mengirim…' : 'Tersimpan di HP — terkirim saat online') + ' Lanjut isi kegiatan berikutnya mulai ' + v.STOP + '.', 'ok');
+          var fe = document.getElementById('mar-form'); if (fe) fe.scrollIntoView({ block: 'start', behavior: 'smooth' });
           syncQueue().then(function () { if (S.view === 'mar') loadMarDay(); });
         });
     };
-    return h('div', { class: 'card mar-form' }, h('h2', null, '＋ Tambah kegiatan'),
+    var acts0 = list.filter(function (x) { return !x.absence; }).length;
+    return h('div', { class: 'card mar-form', id: 'mar-form' }, h('h2', null, acts0 ? '＋ Tambah kegiatan ke-' + (acts0 + 1) : '＋ Tambah kegiatan'),
+      h('p', { class: 'muted small' }, 'Isi satu kegiatan per jam mulai–selesai, lalu simpan. Form langsung siap untuk kegiatan berikutnya dan jam mulai melanjutkan jam selesai sebelumnya.'),
       h('label', { class: 'lbl' }, 'Jenis waktu', h('span', { class: 'req' }, ' *')),
       segmented(cfg.categories, f.CAT, function (c) { f.CAT = c; render(); }, 'mar-cat'),
       h('div', { class: 'grid2' },
@@ -2086,7 +2145,7 @@
         fld('Brand', 'BRAND', { half: true }), fld('Model', 'MODEL', { half: true }), fld('Location', 'LOCATION')),
       f.MHC_NO ? h('div', { class: 'banner info' }, 'Terhubung ke ' + f.MHC_NO, h('button', { type: 'button', class: 'linkbtn', onclick: function () { f.MHC_NO = ''; render(); } }, 'lepas')) : null,
       fld('Jobs Description', 'DESC', { textarea: true, req: true }), fld('Remarks', 'REMARKS', { textarea: true }),
-      h('button', { type: 'button', class: 'btn primary block', onclick: save }, 'Simpan kegiatan'));
+      h('button', { type: 'button', class: 'btn primary block', onclick: save }, 'Simpan kegiatan & lanjut berikutnya'));
   }
 
   /* ---------- Review / download MAR tim ---------- */
