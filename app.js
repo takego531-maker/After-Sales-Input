@@ -1,4 +1,4 @@
-/* ASPIRE v2.13 — After Sales Platform · IPE & IKE. Offline-first (IndexedDB), tampilan HP & kantor. */
+/* ASPIRE v2.14 — After Sales Platform · IPE & IKE. Offline-first (IndexedDB), tampilan HP & kantor. */
 (function () {
   'use strict';
   var CFG = window.APP_CONFIG || {};
@@ -368,7 +368,7 @@
       }).catch(function (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Masuk'; });
     }
     return h('div', { class: 'login-wrap' },
-      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.13.1', alt: 'ASPIRE' }),
+      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.14.0', alt: 'ASPIRE' }),
         h('h1', null, 'ASPIRE'), h('p', null, 'After Sales Platform · IPE & IKE'),
         h('div', { class: 'logo-pair' }, h('img', { src: 'logos/ipe.png', alt: 'IPE' }), h('img', { src: 'logos/ike.png', alt: 'IKE' }))),
       h('form', { class: 'card', onsubmit: submit }, h('label', { class: 'lbl' }, 'Company'), segmented(['IPE', 'IKE'], company, function (v) { company = v; }),
@@ -412,7 +412,7 @@
           : can('partsJds') ? tile('⌕', 'Cari Part di JDS', 'Part yang tidak ada di Stock On Hand', inbox('jds'), '', C.jds) : null,
         can('quoteCreate|quoteStatus') ? (isPssrOnly() ? (C.mylate ? tile('⏰', 'Lewat ' + (mhc().submitDays || 3) + ' hari', 'Quotation belum dikirim ke customer — isi alasannya', inbox('mylate'), 'late', C.mylate) : null)
           : (C.late ? tile('⏰', 'Lewat ' + (mhc().submitDays || 3) + ' hari', 'Quotation belum dikirim ke customer — isi alasannya', inbox('late'), 'late', C.late) : null)) : null,
-        can('quoteCreate') ? tile('Rp', 'Perlu Quotation', 'MHC sudah disetujui SL · upload quotation SAP (PDF), nomor & nilai terisi otomatis', inbox('needquote'), C.needquote ? 'accent' : '', C.needquote) : null,
+        can('quoteCreate') ? tile('Rp', 'Perlu Quotation', 'MHC sudah disetujui SL · upload quotation ' + erpName() + ' (PDF), nomor & nilai terisi otomatis', inbox('needquote'), C.needquote ? 'accent' : '', C.needquote) : null,
         can('quoteMonitor') ? (isPssrOnly() ? tile('⇄', 'Quotation saya', (C.myfudue ? C.myfudue + ' perlu di-follow up · ' : '') + 'Follow up customer, catat hasilnya, update Negosiasi / PO / Lose', function () { openQuotes(); }, C.myfudue ? 'accent' : '', C.myfudue)
           : tile('⇄', 'Monitoring Quotation', 'Quotation berjalan per PSSR, umur, nilai & follow up' + (C.fudue ? ' · ' + C.fudue + ' perlu follow up' : ''), function () { openQuotes(); }, '', C.fudue)) : null,
         can('callCenter') ? tile('☏', 'Survei Kepuasan', (C.ccDue ? C.ccDue + ' perlu ditelepon · ' : '') + (C.ccLate ? C.ccLate + ' lewat batas · ' : '') + 'Parts & Service maks. ' + (ccCfg().dueWorkdays || 2) + ' hari kerja setelah invoice', function () { openCc(); }, C.ccDue ? 'accent' : '', C.ccDue) : null,
@@ -1259,7 +1259,84 @@
     if (!res.qno) res.notes.push('Nomor quotation tidak ditemukan — isi manual.');
     return res;
   }
-  window.__asiTest = { parseQuote: parseQuoteText, pdfLines: pdfTextLines, poll: function () { pollCounts(true); } };   // untuk pengujian
+  /** Quotation Odoo (IKE): "Quotation # …", tabel Description · Quantity · Unit Price · (Disc.%) · Taxes · Amount, ringkasan Untaxed Amount / Total.
+      Parts = baris berkode [xxx]; Service = baris berawalan cabang "BJM - LABOUR / TRANSPORT / HOTEL / CONSUMABLE …". */
+  function isOdooQuote(lines) {
+    var t = (lines || []).join('\n');
+    return /Quotation\s*#\s*\S+/i.test(t) && /Untaxed\s+Amount/i.test(t);
+  }
+  function parseOdooQuote(lines, ctx) {
+    ctx = ctx || {};
+    var L = (lines || []).map(function (l) { return String(l == null ? '' : l).replace(/ /g, ' ').replace(/\s+$/, ''); });
+    var res = { odoo: true, qno: '', date: '', exp: '', customer: '', salesperson: '', side: '', sub: 0, disc: 0, net: 0, tax: 0, total: 0, items: [], codes: [], notes: [], values: { net: { P: 0, S: 0 }, total: { P: 0, S: 0 } } };
+    var rp = function (s) { var m = String(s).match(/Rp\s*(-?[\d.,]+\d)\s*$/); return m ? parseNum(m[1]) : NaN; };
+    var qi = -1;
+    L.some(function (l, i) { var m = l.match(/Quotation\s*#\s*([A-Za-z0-9][\w\/.\-]*)/i); if (m) { res.qno = m[1]; qi = i; return true; } return false; });
+    var hi = -1;
+    L.some(function (l, i) { if (/Quotation\s+Date/i.test(l)) { hi = i; return true; } return false; });
+    if (hi >= 0) {
+      for (var j = hi + 1; j < Math.min(L.length, hi + 4); j++) {
+        var ds = L[j].match(new RegExp(DATE_TOK, 'g'));
+        if (!ds) continue;
+        res.date = toIsoDate(ds[0]) || '';
+        if (/Expiration/i.test(L[hi]) && ds[1]) res.exp = toIsoDate(ds[1]) || '';
+        if (/Salesperson/i.test(L[hi])) { var rest = L[j]; ds.forEach(function (d) { rest = rest.replace(d, ' '); }); res.salesperson = rest.replace(/\s+/g, ' ').trim(); }
+        break;
+      }
+      if (qi >= 0) for (var c = qi + 1; c < hi; c++) { var t = L[c].trim(); if (t && !/^(npwp|nik|telp|phone|email)\b/i.test(t)) { res.customer = t.replace(/\s{2,}.*$/, ''); break; } }
+    }
+    var head = -1;
+    L.forEach(function (l, i) { if (head < 0 && /Description/i.test(l) && /Quantity/i.test(l) && /Amount/i.test(l)) head = i; });
+    var hasDisc = head >= 0 && /Disc/i.test(L[head]);
+    var sum = { P: 0, S: 0 }, ended = false;
+    var pnList = (ctx.partNos || []).map(function (x) { return String(x || '').toUpperCase().replace(/\s+/g, '').trim(); }).filter(function (x) { return x.length >= 3; });
+    L.forEach(function (l, i) {
+      var low = l.toLowerCase().trim();
+      if (/^untaxed\s+amount/.test(low)) { ended = true; var n = rp(l); if (!isNaN(n)) res.net = n; return; }
+      if (/^subtotal\b/.test(low)) { ended = true; var n2 = rp(l); if (!isNaN(n2) && !res.net) res.net = n2; return; }
+      if (/^total\b/.test(low)) { ended = true; var n3 = rp(l); if (!isNaN(n3)) res.total = n3; return; }
+      if (/taxes/.test(low) && ended) return;
+      if (head < 0 || i <= head || ended) return;
+      var amt = rp(l); if (isNaN(amt)) return;   // baris judul seksi / lanjutan deskripsi
+      var qm = l.match(/\s(-?\d[\d.,]*)\s+([A-Za-z][A-Za-z.]*)\s+(-?\d[\d.,]*\d)\s+(?:(\d[\d.,]*)\s+)?(\d[\d.,]*)\s*%/);
+      var desc = (qm ? l.slice(0, qm.index) : l.replace(/Rp\s*[\d.,]+\s*$/, '')).trim();
+      var codes = [], cm, cre = /^\s*\[([^\]]+)\]/, rest = desc;
+      while ((cm = rest.match(cre))) { codes.push(cm[1].trim()); rest = rest.slice(cm[0].length); }
+      var gross = amt, dpct = 0;
+      if (qm) { var qty = parseNum(qm[1]), up = parseNum(qm[3]); if (!isNaN(qty) && !isNaN(up)) gross = Math.round(qty * up * 100) / 100; if (hasDisc && qm[4]) dpct = parseNum(qm[4]) || 0; }
+      var isSvc = !codes.length && (/^[A-Z]{2,6}\s*-\s+\S/.test(desc) || SVC_RE.test(desc) || /consumable/i.test(desc));
+      var side = isSvc ? 'S' : 'P';
+      sum[side] += amt; res.sub += gross; if (gross > amt + 0.5) res.disc += gross - amt;
+      codes.forEach(function (k) { res.codes.push(k); });
+      res.items.push({ text: desc, value: amt, side: side, codes: codes, disc: dpct });
+    });
+    res.sub = r2(res.sub); res.disc = r2(res.disc); sum.P = r2(sum.P); sum.S = r2(sum.S);
+    var itemsTot = r2(sum.P + sum.S);
+    if (!res.net) res.net = itemsTot;
+    if (!res.total) res.total = res.net;
+    res.tax = r2(res.total - res.net);
+    res.side = sum.P && sum.S ? 'PS' : sum.S ? 'S' : 'P';
+    var base = itemsTot || res.net;
+    if (itemsTot && Math.abs(itemsTot - res.net) <= 1) { res.values.net.P = sum.P; res.values.net.S = sum.S; }
+    else ['P', 'S'].forEach(function (s) { res.values.net[s] = base ? r2(res.net * sum[s] / base) : 0; });
+    if (!itemsTot) { var k = ctx.hasParts === false ? 'S' : 'P'; res.values.net[k] = res.net; res.side = k; res.notes.push('Rincian baris tidak terbaca — seluruh nilai dimasukkan ke ' + (k === 'P' ? 'Parts' : 'Service') + '. Pindahkan bila perlu.'); }
+    ['P', 'S'].forEach(function (s) { res.values.total[s] = res.net ? r2(res.total * res.values.net[s] / res.net) : 0; });
+    if (itemsTot && Math.abs(itemsTot - res.net) > 1) res.notes.push('Jumlah baris (' + fmtRp(itemsTot) + ') berbeda dengan Untaxed Amount (' + fmtRp(res.net) + ') — mohon dicek.');
+    if (res.disc) res.notes.push('Ada diskon ' + fmtRp(res.disc) + ' — nilai yang dicatat sudah setelah diskon.');
+    // cocokkan kode part dengan parts rekomendasi MHC
+    if (pnList.length && res.codes.length) {
+      var norm = function (x) { return String(x).toUpperCase().replace(/\s+/g, ''); };
+      var notIn = res.items.filter(function (it) { return it.side === 'P' && it.codes.length && !it.codes.some(function (k) { return pnList.indexOf(norm(k)) >= 0; }); });
+      if (notIn.length) res.notes.push(notIn.length + ' part di quotation tidak ada di parts rekomendasi MHC: ' + notIn.slice(0, 4).map(function (it) { return it.codes[0]; }).join(', ') + (notIn.length > 4 ? ' …' : ''));
+    }
+    var simp = function (s) { return String(s || '').toUpperCase().replace(/\b(PT|CV|UD|TBK)\b\.?/g, '').replace(/[^A-Z0-9]+/g, ' ').trim(); };
+    if (ctx.customer && res.customer && simp(ctx.customer) !== simp(res.customer)) res.notes.push('Customer di PDF "' + res.customer + '" berbeda dengan MHC "' + ctx.customer + '" — pastikan PDF-nya benar.');
+    if (ctx.pssr && res.salesperson && simp(ctx.pssr) !== simp(res.salesperson)) res.notes.push('Salesperson di PDF: ' + res.salesperson + ' (PSSR di MHC: ' + ctx.pssr + ').');
+    if (!res.qno) res.notes.push('Nomor quotation tidak ditemukan — isi manual.');
+    if (!res.date) res.notes.push('Tanggal quotation tidak terbaca — isi manual.');
+    return res;
+  }
+  window.__asiTest = { parseOdoo: parseOdooQuote, isOdoo: isOdooQuote, parseQuote: parseQuoteText, pdfLines: pdfTextLines, poll: function () { pollCounts(true); } };   // untuk pengujian
 
   /* ---------- Service Leader: tambah parts & tanda tangan ---------- */
   function slAddParts(D, r, v, setParts) {
@@ -1473,12 +1550,15 @@
     return [p ? 'Parts ' + fmtRp(p) : '', s ? 'Service ' + fmtRp(s) : '', p && s ? 'Total ' + fmtRp(p + s) : ''].filter(Boolean).join(' · ');
   }
   var QMODES = [['net', 'Setelah diskon (sebelum PPN)'], ['total', 'Total termasuk PPN']];
+  // IPE: quotation dari SAP · IKE: quotation dari Odoo (satu PDF biasanya berisi Parts & Service)
+  function erpName() { return S.session && S.session.company === 'IKE' ? 'Odoo' : 'SAP'; }
   function quoteSideVal(res, s, mode) { return res.side === 'PS' ? res.values[mode][s] : (mode === 'total' ? res.total : res.net); }
   function quoteApply(Q, s) {
     var x = Q.sides[s], V = Q.vals;
     if (!x || !x.res) return;
     V[s + '_QNO'] = x.res.qno || V[s + '_QNO'] || ''; V[s + '_QDATE'] = x.res.date || V[s + '_QDATE'] || todayISO();
     var n = quoteSideVal(x.res, s, Q.mode); V[s + '_QVAL'] = n ? String(n) : '';
+    if (x.res.exp) V.Q_EXP = x.res.exp;
     V.QTYPE = V.P_QNO && V.S_QNO ? 'Parts & Service' : V.S_QNO ? 'Service' : 'Parts';
   }
   function pickQuotePdf(D, r, v, force) {
@@ -1493,7 +1573,7 @@
       var F = mhc().f, g = function (k) { return F[k] >= 0 ? v[F[k]] : ''; };
       if (!D.q) {
         var vals = {};
-        ['QTYPE', 'P_QNO', 'P_QDATE', 'P_QVAL', 'S_QNO', 'S_QDATE', 'S_QVAL'].forEach(function (k) { vals[k] = g(k) == null ? '' : String(g(k)); });
+        ['QTYPE', 'P_QNO', 'P_QDATE', 'P_QVAL', 'S_QNO', 'S_QDATE', 'S_QVAL', 'Q_EXP'].forEach(function (k) { vals[k] = g(k) == null ? '' : String(g(k)); });
         D.q = { vals: vals, mode: 'net', sides: { P: null, S: null }, same: false, reading: 0, notes: [], lines: [] };
       }
       var Q = D.q; Q.reading += list.length; Q.err = ''; render();
@@ -1505,7 +1585,8 @@
           if (D.q !== Q) return;
           Q.lines = lines;
           if (!lines.join('').trim()) { Q.sides[force || 'P'] = { file: f, name: f.name, res: null }; Q.err = f.name + ' berupa gambar / hasil scan — teksnya tidak bisa dibaca. Isi nomor & nilai manual.'; return; }
-          var x = parseQuoteText(lines, { partNos: pn, hasParts: (D.parts || []).length > 0, mhcNo: r.mhcNo });
+          var pctx = { partNos: pn, hasParts: (D.parts || []).length > 0, mhcNo: r.mhcNo, customer: g('CUSTOMER'), pssr: g('PSSR') };
+          var x = isOdooQuote(lines) ? parseOdooQuote(lines, pctx) : parseQuoteText(lines, pctx);
           var side = force || x.side, item = { file: f, name: f.name, res: x };
           if (force && x.side !== 'PS' && x.side !== force) msgs.push(f.name + ' terbaca sebagai quotation ' + (x.side === 'S' ? 'Service' : 'Parts') + ' — tetap dimasukkan ke ' + (force === 'S' ? 'Service' : 'Parts'));
           if (side === 'PS') { Q.sides.P = Q.sides.S = item; Q.same = true; quoteApply(Q, 'P'); quoteApply(Q, 'S'); }
@@ -1524,8 +1605,9 @@
       var pno = String(g('P_QNO') || '').trim(), sno = String(g('S_QNO') || '').trim(), qt = String(g('QTYPE') || '');
       if ((pno && sno) || (qt === 'Parts' && pno) || (qt === 'Service' && sno)) return null;
       var st = function (lbl, no) { return h('div', { class: 'kv' }, h('span', null, lbl), no ? h('b', { class: 'ok-text' }, '✓ ' + no) : h('span', { class: 'muted' }, 'belum')); };
-      return h('div', { class: 'card quote-card prompt' }, h('h2', null, 'Quotation SAP'),
-        h('p', { class: 'muted small' }, 'Buat quotation di SAP dari MHC ini (⬇ Excel parts untuk upload ke SAP), lalu upload PDF-nya di sini — quotation Parts dan Service boleh dipilih sekaligus. No. quotation, tanggal dan nilai terisi otomatis.'),
+      return h('div', { class: 'card quote-card prompt' }, h('h2', null, 'Quotation ' + erpName()),
+        h('p', { class: 'muted small' }, erpName() === 'Odoo' ? 'Buat quotation di Odoo dari MHC ini, lalu upload PDF-nya di sini. Satu PDF boleh berisi Parts & Service sekaligus: No. quotation, tanggal, masa berlaku dan nilai Parts / Service terisi otomatis.'
+          : 'Buat quotation di SAP dari MHC ini (⬇ Excel parts untuk upload ke SAP), lalu upload PDF-nya di sini — quotation Parts dan Service boleh dipilih sekaligus. No. quotation, tanggal dan nilai terisi otomatis.'),
         pno || sno ? [st('Parts', pno), st('Service', sno)] : null,
         h('button', { type: 'button', class: 'btn primary block', onclick: function () { pickQuotePdf(D, r, v); } }, '⬆ Upload Quotation (PDF)'));
     }
@@ -1551,7 +1633,7 @@
           x ? h('span', { class: 'qfile small' }, '📄 ' + x.name + (Q.same ? ' (Parts & Service)' : ''), h('button', { type: 'button', class: 'linkbtn', onclick: function () { pickQuotePdf(D, r, v, s); } }, 'ganti'))
             : h('button', { type: 'button', class: 'btn small', onclick: function () { pickQuotePdf(D, r, v, s); } }, '⬆ PDF ' + nm)),
         h('div', { class: 'grid2' }, fld('No. Quotation ' + nm, s + '_QNO'), fld('Tanggal', s + '_QDATE', 'date'), fld('Nilai ' + nm + ' (IDR)', s + '_QVAL', 'number')),
-        brk ? h('div', { class: 'small muted qbrk' }, 'Dari PDF: ' + brk + (res.side === 'PS' ? ' — dibagi sebanding Parts/Service' : '')) : null);
+        brk ? h('div', { class: 'small muted qbrk' }, 'Dari PDF: ' + brk + (res.side === 'PS' ? (res.odoo ? ' — Parts / Service dari rincian baris' : ' — dibagi sebanding Parts/Service') : '')) : null);
     };
     var qt2 = h('select', { class: 'inp', id: 'q-QTYPE', onchange: function (e) { V.QTYPE = e.target.value; } },
       (M.qtypeOptions || ['Parts', 'Service', 'Parts & Service']).map(function (o) { return h('option', { value: o, selected: o === V.QTYPE }, o); }));
@@ -1566,6 +1648,8 @@
       });
       if (!out.P_QNO && !out.S_QNO) errs.push('Isi No. Quotation Parts dan/atau Service');
       out.QTYPE = V.QTYPE || (out.P_QNO && out.S_QNO ? 'Parts & Service' : out.S_QNO ? 'Service' : 'Parts');
+      out.Q_EXP = V.Q_EXP || '';
+      if (out.Q_EXP && out.P_QDATE && out.Q_EXP < out.P_QDATE || out.Q_EXP && out.S_QDATE && out.Q_EXP < out.S_QDATE) errs.push('Tanggal berlaku (Expiration) tidak boleh sebelum tanggal quotation');
       if (errs.length) return toast(errs.join(' · '), 'err');
       if (!online()) return toast('Butuh koneksi internet untuk upload PDF', 'warn');
       btn.disabled = true; btn.textContent = 'Mengupload & menyimpan…';
@@ -1579,12 +1663,12 @@
     var items = [];
     ['P', 'S'].forEach(function (s) { var x = Q.sides[s]; if (x && x.res && (s === 'P' || !Q.same)) items = items.concat(x.res.items); });
     return h('div', { class: 'card quote-card' },
-      h('div', { class: 'card-head' }, h('h2', null, 'Quotation SAP'), h('button', { type: 'button', class: 'linkbtn', onclick: function () { D.q = null; render(); } }, 'Batal')),
+      h('div', { class: 'card-head' }, h('h2', null, 'Quotation ' + erpName()), h('button', { type: 'button', class: 'linkbtn', onclick: function () { D.q = null; render(); } }, 'Batal')),
       Q.reading ? h('div', { class: 'banner info' }, 'Membaca isi PDF…')
         : Q.err ? h('div', { class: 'banner warn' }, Q.err)
         : h('div', { class: 'banner ok col' }, h('b', null, 'Terisi otomatis dari PDF — cek dulu sebelum simpan.'), Q.notes.map(function (n) { return h('span', { class: 'small' }, '• ' + n); })),
-      h('p', { class: 'hint' }, 'Nilai yang dicatat: setelah diskon, sebelum PPN (baris "After Diskon" di PDF SAP).'),
-      h('div', { class: 'field' }, h('label', { class: 'lbl' }, 'Quotation Type'), qt2),
+      h('p', { class: 'hint' }, erpName() === 'Odoo' || ['P', 'S'].some(function (s) { return Q.sides[s] && Q.sides[s].res && Q.sides[s].res.odoo; }) ? 'Nilai yang dicatat: Untaxed Amount (setelah diskon, sebelum PPN). Baris berkode [part] = Parts; LABOUR / TRANSPORT / HOTEL / CONSUMABLE = Service.' : 'Nilai yang dicatat: setelah diskon, sebelum PPN (baris "After Diskon" di PDF SAP).'),
+      h('div', { class: 'grid2' }, h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Quotation Type'), qt2), fld('Berlaku sampai (Expiration)', 'Q_EXP', 'date')),
       sideBlock('P'), sideBlock('S'),
       items.length ? h('details', { class: 'qread' }, h('summary', null, items.length + ' baris item yang terbaca'),
         items.map(function (it) { return h('div', { class: 'qline' }, h('span', { class: 'chip ' + (it.side === 'S' ? 'info' : 'ok') }, it.side === 'S' ? 'Service' : 'Parts'), h('span', { class: 'qtext' }, it.text), h('b', null, fmtNum(it.value))); })) : null,
@@ -1614,8 +1698,14 @@
     if (n >= 1e6) return 'Rp ' + (n / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + ' jt';
     return fmtRp(n);
   }
+  function fuExpText(fu) {
+    if (!fu || !fu.exp) return '';
+    return fu.expDays < 0 ? 'Quotation kedaluwarsa ' + fmtDate(fu.exp) + ' (' + (-fu.expDays) + ' hari lalu)' : fu.expDays === 0 ? 'Quotation berakhir hari ini' : 'Berlaku s.d. ' + fmtDate(fu.exp) + ' (' + fu.expDays + ' hari lagi)';
+  }
   function fuText(fu) {
     if (!fu || !fu.active) return '';
+    var ex = fu.expSoon ? fuExpText(fu) + ' · ' : '';
+    if (ex) return ex + (fu.next ? 'jadwal follow up ' + fmtDate(fu.next) : 'segera follow up customer');
     if (fu.due) return fu.next ? 'Jadwal follow up ' + fmtDate(fu.next) + (fu.overdue ? ' · lewat ' + fu.overdue + ' hari' : ' · hari ini') : 'Belum ada follow up ' + fu.since + ' hari';
     return fu.next ? 'Follow up berikutnya ' + fmtDate(fu.next) : 'Aktivitas terakhir ' + fu.since + ' hari lalu';
   }
@@ -1811,6 +1901,9 @@
     var fu = D.fu || {}, sides = [['P', 'Parts'], ['S', 'Service']].filter(function (s) { return String(g(s[0] + '_QNO') || '').trim(); });
     var cur = function (s) { return (D.sides || {})[s] || ''; };
     var canAdd = can('quoteStatus') && sides.some(function (s) { return Q_OPEN.indexOf(cur(s[0])) >= 0; });
+    // satu quotation untuk Parts & Service (mis. Odoo IKE): status, PO & Lose diisi sekali untuk keduanya
+    var oneQ = sides.length === 2 && String(g('P_QNO')).trim() === String(g('S_QNO')).trim() && cur('P') === cur('S');
+    var stSides = oneQ ? [['P', 'Parts & Service']] : sides;
     var meths = M.fuMethods || ['Telepon', 'WhatsApp', 'Kunjungan', 'Email', 'Meeting'];
     var FF = D.fuForm || (D.fuForm = { date: todayISO(), method: '', note: '', next: '', st: {} });
     // PSSR yang memegang
@@ -1831,7 +1924,7 @@
       note.addEventListener('input', function () { FF.note = note.value; });
       var nx = h('input', { class: 'inp', type: 'date', id: 'fu-next', value: FF.next, min: isoAdd(FF.date || todayISO(), 1) }); nx.addEventListener('change', function () { FF.next = nx.value; });
       var quick = [3, 7, 14].map(function (d) { return h('button', { type: 'button', class: 'btn small ghost', onclick: function () { FF.next = isoAdd(todayISO(), d); render(); } }, '+' + d + ' hari'); });
-      var stBlocks = sides.filter(function (s) { return Q_OPEN.indexOf(cur(s[0])) >= 0; }).map(function (s) {
+      var stBlocks = stSides.filter(function (s) { return Q_OPEN.indexOf(cur(s[0])) >= 0; }).map(function (s) {
         var k = s[0], x = FF.st[k] || (FF.st[k] = { status: '', po: '', poDate: '', reason: '' });
         var opts2 = ['Negosiasi', 'Approved (PO)', 'Lose'].filter(function (o) { return o !== cur(k); });
         var sel = h('select', { class: 'inp', id: 'fu-st-' + k, onchange: function (e) { x.status = e.target.value; render(); } },
@@ -1866,6 +1959,7 @@
             else if ((CL.q14 === 'Ya' && !String(CL.q14note || '').trim()) || (CL.q15 === 'Ya' && !String(CL.q15note || '').trim())) errs.push('Isi keterangan Q14 / Q15 yang dijawab Ya');
             else if (CL.q14 !== 'Ya' && CL.q15 !== 'Ya') errs.push('Status Lose: minimal Q14 atau Q15 dijawab Ya (alasan Lose)'); }
         });
+        if (oneQ) Object.keys(vals).forEach(function (k) { if (/^P_/.test(k)) vals['S_' + k.slice(2)] = vals[k]; });
         if (FF.next && FF.next <= (FF.date || todayISO())) errs.push('Jadwal berikutnya harus setelah tanggal follow up');
         var finalPick = Object.keys(FF.st).some(function (k) { return FF.st[k].status === 'Approved (PO)' || FF.st[k].status === 'Lose'; });
         if (finalPick && D.checklist && D.checklist.answered < D.checklist.total) errs.push(can('qcheckFill') ? 'Lengkapi Cek List Quotation dulu (' + D.checklist.answered + '/' + D.checklist.total + ')' : 'Cek List Quotation belum lengkap (' + D.checklist.answered + '/' + D.checklist.total + ') — minta PSSR mengisinya dulu');
@@ -1894,6 +1988,8 @@
     return h('div', { class: 'card fu-card' + (fu.due ? ' due' : '') },
       h('div', { class: 'card-head' }, h('h2', null, 'Follow Up Quotation'), fu.due ? h('span', { class: 'chip bad' }, 'Perlu follow up') : fu.next ? h('span', { class: 'chip info' }, 'Jadwal ' + fmtDate(fu.next)) : null),
       ft ? h('p', { class: 'small ' + (fu.due ? 'err-text' : 'muted') }, ft) : null,
+      fu.exp && !fu.expSoon ? h('p', { class: 'small muted' }, fuExpText(fu)) : null,
+      oneQ && canAdd ? h('p', { class: 'small muted' }, 'Parts & Service dalam satu quotation (' + g('P_QNO') + '): status, PO dan Lose berlaku untuk keduanya.') : null,
       pssrRow, form,
       h('h3', { class: 'sec-t' }, 'Riwayat (' + hist.length + ')'),
       hist.length ? hist : h('p', { class: 'muted small' }, 'Belum ada follow up.'));
