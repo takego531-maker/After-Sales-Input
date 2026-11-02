@@ -368,7 +368,7 @@
       }).catch(function (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Masuk'; });
     }
     return h('div', { class: 'login-wrap' },
-      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.14.1', alt: 'ASPIRE' }),
+      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.14.3', alt: 'ASPIRE' }),
         h('h1', null, 'ASPIRE'), h('p', null, 'After Sales Platform · IPE & IKE'),
         h('div', { class: 'logo-pair' }, h('img', { src: 'logos/ipe.png', alt: 'IPE' }), h('img', { src: 'logos/ike.png', alt: 'IKE' }))),
       h('form', { class: 'card', onsubmit: submit }, h('label', { class: 'lbl' }, 'Company'), segmented(['IPE', 'IKE'], company, function (v) { company = v; }),
@@ -554,8 +554,8 @@
       function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0]), ' · ', r[1] || '-'), h('div', { class: 'pick-sub' }, [r[2] && 'SN ' + r[2], r[3], r[5], r[6], r[7]].filter(Boolean).join(' — '))]; },
       function (r) { var p = popBySn(r[2]) || []; setVals({ CALL_ID: r[0], CUSTOMER: r[1] || p[3], SN: r[2], LOCATION: r[4] || p[4], BRAND: p[1], MODEL: p[2] || r[3], ENG_NO: p[7], PHONE: p[6] }); toast('Data dari Call ID ' + r[0] + ' terisi — silakan cek', 'ok'); },
       'Ketik Call ID / customer / SN…');
-    var popPick = picker('Atau cari unit dari Machine Population', S.boot.population || [], function (r) { return r.slice(0, 5).join(' '); },
-      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0] || '(tanpa SN)'), ' · ', [r[1], r[2]].filter(Boolean).join(' ')), h('div', { class: 'pick-sub' }, [r[3], r[4], r[5] ? 'th ' + r[5] : ''].filter(Boolean).join(' — '))]; },
+    var popPick = picker('Atau cari unit dari Machine Population', S.boot.population || [], function (r) { return r.slice(0, 5).join(' ') + ' ' + (r[9] || ''); },
+      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0] || '(tanpa SN)'), ' · ', [r[1], r[2]].filter(Boolean).join(' ')), h('div', { class: 'pick-sub' }, [r[3], r[4], r[5] ? 'th ' + r[5] : '', r[9] ? 'VIN ' + r[9] : ''].filter(Boolean).join(' — '))]; },
       function (r) {
         var d = S.wiz.d;
         if (d.values.CALL_ID) {
@@ -2228,8 +2228,8 @@
     var scPick = picker('Pilih Call ID (Service Call ' + (oc ? S.session.company + ' & ' + oc : 'SAP') + ')', scAll, function (r) { return r.join(' ') + ' ' + (r.__co || ''); },
       function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0]), ' · ', r[1] || '-', ' ', tagC(r)), h('div', { class: 'pick-sub' }, [r[2] && 'SN ' + r[2], r[3], r[5]].filter(Boolean).join(' — '))]; },
       function (r) { var p = popOf(r[2], r.__co) || []; setUnit({ CALL_ID: r[0], CUSTOMER: r[1] || p[3], SN: r[2], LOCATION: r[4] || p[4], BRAND: p[1], MODEL: p[2] || r[3] }); }, 'Ketik Call ID / customer / SN…');
-    var popPick = picker('Atau cari unit dari Machine Population' + (oc ? ' (' + S.session.company + ' & ' + oc + ')' : ''), popAll, function (r) { return r.slice(0, 5).join(' ') + ' ' + (r.__co || ''); },
-      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0] || '(tanpa SN)'), ' · ', [r[1], r[2]].filter(Boolean).join(' '), ' ', tagC(r)), h('div', { class: 'pick-sub' }, [r[3], r[4]].filter(Boolean).join(' — '))]; },
+    var popPick = picker('Atau cari unit dari Machine Population' + (oc ? ' (' + S.session.company + ' & ' + oc + ')' : ''), popAll, function (r) { return r.slice(0, 5).join(' ') + ' ' + (r[9] || '') + ' ' + (r.__co || ''); },
+      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0] || '(tanpa SN)'), ' · ', [r[1], r[2]].filter(Boolean).join(' '), ' ', tagC(r)), h('div', { class: 'pick-sub' }, [r[3], r[4], r[9] ? 'VIN ' + r[9] : ''].filter(Boolean).join(' — '))]; },
       function (r) { setUnit({ SN: r[0], BRAND: r[1], MODEL: r[2], CUSTOMER: r[3], LOCATION: r[4] }); }, 'Ketik SN / customer / model…');
 
     // ---- rincian waktu ----
