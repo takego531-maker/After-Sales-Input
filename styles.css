@@ -474,3 +474,4 @@ pre.log.wa { font-size: 13.5px; }
 .mar-rdur { flex: none; font-weight: 600; }
 .icon-btn.sm { width: 34px; height: 34px; font-size: 14px; flex: none; }
 .mar-rows-tot { font-weight: 600; font-size: 14px; }
+.mar-form.editing { border: 2px solid var(--accent); }

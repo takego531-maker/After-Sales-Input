@@ -201,7 +201,7 @@
   function logout(force) {
     var pend = myQueue().length;
     if (!force && !confirm(pend ? pend + ' data belum terkirim dan tetap tersimpan di HP ini. Keluar?' : 'Keluar dari aplikasi?')) return;
-    S.session = null; S.boot = null; S.view = 'home'; S.wiz = null; S.counts = null; store.del(KEY.session); render();
+    S.session = null; S.boot = null; S.view = 'home'; S.wiz = null; S.counts = null; S.marOther = null; S.mar = null; store.del(KEY.session); render();
   }
 
   /* ================= queue ================= */
@@ -368,7 +368,7 @@
       }).catch(function (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Masuk'; });
     }
     return h('div', { class: 'login-wrap' },
-      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.14.0', alt: 'ASPIRE' }),
+      h('div', { class: 'login-hero' }, h('img', { class: 'app-mark', src: 'icons/aspire-icon.svg?v=2.14.1', alt: 'ASPIRE' }),
         h('h1', null, 'ASPIRE'), h('p', null, 'After Sales Platform · IPE & IKE'),
         h('div', { class: 'logo-pair' }, h('img', { src: 'logos/ipe.png', alt: 'IPE' }), h('img', { src: 'logos/ike.png', alt: 'IKE' }))),
       h('form', { class: 'card', onsubmit: submit }, h('label', { class: 'lbl' }, 'Company'), segmented(['IPE', 'IKE'], company, function (v) { company = v; }),
@@ -2076,8 +2076,14 @@
     if (prefill) { M.form = newMarForm(prefill); M.date = M.form.DATE || todayISO(); toast('Data dari MHC terisi — isi jam & jenis waktunya', 'ok'); }
     go('mar'); loadMarDay();
   }
+  function loadMarOther() {   // data customer company lain untuk mekanik hybrid (sekali per sesi)
+    if (S.marOther || S.marOtherLoading || !online() || !can('marInput')) return;
+    S.marOtherLoading = true;
+    api('formMarOther', { token: S.session.token }).then(function (r) { S.marOther = r; S.marOtherLoading = false; if (S.view === 'mar') renderKeep(); })
+      .catch(function () { S.marOtherLoading = false; });
+  }
   function loadMarDay() {
-    var M = S.mar; M.rows = null;
+    var M = S.mar; M.rows = null; loadMarOther();
     if (!online()) { render(); return; }
     M.loading = true; if (S.view === 'mar') render();
     api('formListMar', { token: S.session.token, scope: 'mine', from: M.date, to: M.date }).then(function (r) { M.loading = false; M.rows = r.rows; M.sum = r.summary[0] || null; if (S.view === 'mar') render(); })
@@ -2156,6 +2162,7 @@
             h('div', { class: 'small' }, [x.jobType && x.jobType + (x.subType && x.subType !== x.jobType ? ' · ' + x.subType : ''), x.status].filter(Boolean).join(' · ')),
             h('div', { class: 'small muted' }, [x.customer, x.callId && 'Call ID ' + x.callId, x.desc].filter(Boolean).join(' · ')),
             x.queued ? h('div', { class: 'small warn-text' }, x.review) : x.review && x.review !== cfg.review.OK ? h('div', { class: 'small muted' }, x.review) : null),
+          canDel && !x.queued ? h('button', { type: 'button', class: 'icon-btn', title: 'Ubah', onclick: function () { marStartEdit(x); } }, '✎') : null,
           canDel ? h('button', { type: 'button', class: 'icon-btn danger', title: 'Hapus', onclick: function () {
             if (!confirm('Hapus kegiatan ' + x.start + '–' + x.stop + '?')) return;
             if (x.queued) return removeItem(x.item).then(render);
@@ -2168,6 +2175,19 @@
     var form = fullAbs ? h('div', { class: 'banner info' }, 'Tanggal ini tercatat ' + fullAbs.absence + '. Hapus catatan itu bila ternyata Anda bekerja.') : M.kind === 'abs' ? marAbsForm(list) : marForm(list);
     return h('div', null, nav, sumCard, acts, fullAbs ? null : kind, form);
   }
+  /** v2.14.1: ubah kegiatan yang belum di-review OK — form terisi data kegiatan itu (satu baris) */
+  function marStartEdit(x) {
+    var M = S.mar;
+    if (!online()) return toast('Mengubah kegiatan butuh koneksi internet', 'warn');
+    M.kind = 'act';
+    M.edit = { row: x.row, marNo: x.marNo, label: x.start + '–' + x.stop };
+    M.form = Object.assign(newMarForm(), { DATE: x.date || M.date, JOB_TYPE: x.jobType, SUB_TYPE: x.subType, STATUS: x.status || 'In Progress', CUSTOMER: x.customer || '',
+      BRAND: x.brand || '', MODEL: x.model || '', SN: x.sn || '', LOCATION: x.location || '', CALL_ID: x.callId || '', MHC_NO: x.mhcNo || '', DESC: x.desc || '', REMARKS: x.remarks || '' });
+    M.form.ROWS = [{ CAT: x.cat || 'Working', START: x.start, STOP: x.stop, NOTE: '' }];
+    render();
+    setTimeout(function () { var fe = document.getElementById('mar-form'); if (fe) fe.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 50);
+  }
+  function marCancelEdit() { var M = S.mar; M.edit = null; M.form = Object.assign(newMarForm(), { DATE: M.date }); render(); }
   function marForm(list) {
     var M = S.mar, cfg = marCfg(), f = M.form;
     // v2.13.1: satu form = data pekerjaan (diisi sekali) + beberapa baris jenis waktu (Travel / Working / …), disimpan sekaligus
@@ -2200,15 +2220,21 @@
     var custCat = function (c) { return cfg.noCustomerCats.indexOf(c) < 0; };
     var needCust = f.JOB_TYPE !== 'Training' && R.some(function (r) { return custCat(r.CAT); });
     var setUnit = function (o) { Object.keys(o).forEach(function (k) { f[k] = o[k] || ''; }); render(); };
-    var scPick = picker('Pilih Call ID (Service Call SAP)', S.boot.serviceCalls || [], function (r) { return r.join(' '); },
-      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0]), ' · ', r[1] || '-'), h('div', { class: 'pick-sub' }, [r[2] && 'SN ' + r[2], r[3], r[5]].filter(Boolean).join(' — '))]; },
-      function (r) { var p = popBySn(r[2]) || []; setUnit({ CALL_ID: r[0], CUSTOMER: r[1] || p[3], SN: r[2], LOCATION: r[4] || p[4], BRAND: p[1], MODEL: p[2] || r[3] }); }, 'Ketik Call ID / customer / SN…');
-    var popPick = picker('Atau cari unit dari Machine Population', S.boot.population || [], function (r) { return r.slice(0, 5).join(' '); },
-      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0] || '(tanpa SN)'), ' · ', [r[1], r[2]].filter(Boolean).join(' ')), h('div', { class: 'pick-sub' }, [r[3], r[4]].filter(Boolean).join(' — '))]; },
+    // v2.14.1: mekanik hybrid — data customer company lain (IPE ↔ IKE) ikut dicari, diberi label company
+    var O = S.marOther, oc = O && O.company, tagC = function (r) { return r.__co ? h('span', { class: 'chip info' }, r.__co) : null; };
+    var tag = function (list) { return (list || []).map(function (r) { var x = r.slice(); x.__co = oc; return x; }); };
+    var scAll = (S.boot.serviceCalls || []).concat(O ? tag(O.serviceCalls) : []), popAll = (S.boot.population || []).concat(O ? tag(O.population) : []);
+    var popOf = function (sn, co) { var t = String(sn || '').trim().toLowerCase(); return t ? popAll.filter(function (r) { return (r.__co || '') === (co || '') && String(r[0]).trim().toLowerCase() === t; })[0] : null; };
+    var scPick = picker('Pilih Call ID (Service Call ' + (oc ? S.session.company + ' & ' + oc : 'SAP') + ')', scAll, function (r) { return r.join(' ') + ' ' + (r.__co || ''); },
+      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0]), ' · ', r[1] || '-', ' ', tagC(r)), h('div', { class: 'pick-sub' }, [r[2] && 'SN ' + r[2], r[3], r[5]].filter(Boolean).join(' — '))]; },
+      function (r) { var p = popOf(r[2], r.__co) || []; setUnit({ CALL_ID: r[0], CUSTOMER: r[1] || p[3], SN: r[2], LOCATION: r[4] || p[4], BRAND: p[1], MODEL: p[2] || r[3] }); }, 'Ketik Call ID / customer / SN…');
+    var popPick = picker('Atau cari unit dari Machine Population' + (oc ? ' (' + S.session.company + ' & ' + oc + ')' : ''), popAll, function (r) { return r.slice(0, 5).join(' ') + ' ' + (r.__co || ''); },
+      function (r) { return [h('div', { class: 'pick-main' }, h('b', null, r[0] || '(tanpa SN)'), ' · ', [r[1], r[2]].filter(Boolean).join(' '), ' ', tagC(r)), h('div', { class: 'pick-sub' }, [r[3], r[4]].filter(Boolean).join(' — '))]; },
       function (r) { setUnit({ SN: r[0], BRAND: r[1], MODEL: r[2], CUSTOMER: r[3], LOCATION: r[4] }); }, 'Ketik SN / customer / model…');
 
     // ---- rincian waktu ----
-    var others = function () { return (M.date === f.DATE ? (M.rows || []) : []).concat(marQueued(f.DATE)).filter(function (x) { return !x.absence; }); };
+    var E = M.edit;
+    var others = function () { return (M.date === f.DATE ? (M.rows || []) : []).concat(marQueued(f.DATE)).filter(function (x) { return !x.absence && !(E && x.row === E.row && !x.queued); }); };
     var totEl = h('div', { class: 'mar-rows-tot' });
     var showTot = function () {
       var t = 0, ot = 0, ok = 0;
@@ -2265,6 +2291,15 @@
       }
       var btn = ev && ev.currentTarget; if (btn) btn.disabled = true;
       var shared = Object.assign({}, f); delete shared.ROWS;
+      if (E) {   // ubah satu kegiatan yang sudah terkirim
+        if (!online()) { if (btn) btn.disabled = false; return toast('Mengubah kegiatan butuh koneksi internet', 'warn'); }
+        var r0 = R[0], ve = Object.assign({}, shared, { CAT: r0.CAT, START: r0.START, STOP: r0.STOP, REMARKS: [String(r0.NOTE || '').trim(), String(f.REMARKS || '').trim()].filter(Boolean).join(' · ') });
+        api('formSubmitMar', { token: S.session.token, clientId: uid(), values: ve, branch: S.session.user.branch, editRow: E.row, editMarNo: E.marNo }).then(function () {
+          M.edit = null; M.form = Object.assign(newMarForm(), { DATE: ve.DATE }); M.form.ROWS = [{ CAT: 'Working', START: '', STOP: '', NOTE: '' }];
+          M.date = ve.DATE; toast('Kegiatan diubah — menunggu review SL lagi', 'ok'); loadCounts(); loadMarDay();
+        }).catch(function (e) { if (btn) btn.disabled = false; toast(e.message, 'err'); });
+        return;
+      }
       var items = spans.sort(function (x, y) { return x.a - y.a; }).map(function (x) {
         var v = Object.assign({}, shared, { CAT: x.r.CAT, START: x.r.START, STOP: x.r.STOP, REMARKS: [String(x.r.NOTE || '').trim(), String(f.REMARKS || '').trim()].filter(Boolean).join(' · ') });
         return { id: uid(), kind: 'mar', company: S.session.company, username: S.session.user.username, createdAt: Date.now(), status: 'pending',
@@ -2282,8 +2317,10 @@
       }).catch(function (e) { if (btn) btn.disabled = false; toast('Gagal menyimpan: ' + e.message, 'err'); });
     };
     var acts0 = list.filter(function (x) { return !x.absence; }).length;
-    return h('div', { class: 'card mar-form', id: 'mar-form' }, h('h2', null, acts0 ? '＋ Tambah kegiatan (sudah ' + acts0 + ' hari ini)' : '＋ Tambah kegiatan'),
-      h('p', { class: 'muted small' }, 'Isi data pekerjaan sekali, lalu rincian waktunya per baris (Travel, Working, Reporting, Standby…). Semua baris tersimpan sekaligus.'),
+    return h('div', { class: 'card mar-form' + (E ? ' editing' : ''), id: 'mar-form' },
+      E ? h('div', { class: 'card-head' }, h('h2', null, '✎ Ubah kegiatan ' + E.label), h('button', { type: 'button', class: 'linkbtn', onclick: marCancelEdit }, 'Batal'))
+        : h('h2', null, acts0 ? '＋ Tambah kegiatan (sudah ' + acts0 + ' hari ini)' : '＋ Tambah kegiatan'),
+      h('p', { class: 'muted small' }, E ? 'Ubah isian lalu simpan. Kegiatan kembali berstatus Menunggu Review SL.' : 'Isi data pekerjaan sekali, lalu rincian waktunya per baris (Travel, Working, Reporting, Standby…). Semua baris tersimpan sekaligus.'),
       h('div', { class: 'grid2' },
         h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Tanggal'), h('input', { class: 'inp', type: 'date', value: f.DATE, max: todayISO(), onchange: function (e) { f.DATE = e.target.value; render(); } })),
         h('div', { class: 'field half' }, h('label', { class: 'lbl' }, 'Hari'), h('div', { class: 'ro' }, f.DATE ? cfg.days[dowOf(f.DATE)] : '—')),
@@ -2299,8 +2336,8 @@
       fld('Jobs Description', 'DESC', { textarea: true, req: true }), fld('Remarks', 'REMARKS', { textarea: true }),
       h('h3', { class: 'sec-t' }, 'Rincian waktu', h('span', { class: 'req' }, ' *')),
       h('div', { class: 'mar-rows' }, rowEls),
-      h('div', { class: 'row-btns' }, h('button', { type: 'button', class: 'btn small', onclick: addRow }, '＋ Tambah baris'), totEl),
-      h('button', { type: 'button', class: 'btn primary block', onclick: save }, R.length > 1 ? 'Simpan semua kegiatan (' + R.length + ')' : 'Simpan kegiatan'));
+      h('div', { class: 'row-btns' }, E ? null : h('button', { type: 'button', class: 'btn small', onclick: addRow }, '＋ Tambah baris'), totEl),
+      h('button', { type: 'button', class: 'btn primary block', onclick: save }, E ? 'Simpan perubahan' : R.length > 1 ? 'Simpan semua kegiatan (' + R.length + ')' : 'Simpan kegiatan'));
   }
   /* ---------- Review / download MAR tim ---------- */
   /* ---------- MAR: tidak masuk, riwayat, rekap utilisasi ---------- */
