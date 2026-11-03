@@ -475,3 +475,8 @@ pre.log.wa { font-size: 13.5px; }
 .icon-btn.sm { width: 34px; height: 34px; font-size: 14px; flex: none; }
 .mar-rows-tot { font-weight: 600; font-size: 14px; }
 .mar-form.editing { border: 2px solid var(--accent); }
+/* v2.15: edit & batalkan MHC */
+.btn.danger-btn { border-color: var(--err); color: var(--err); }
+.edit-bar { margin-bottom: 10px; flex-wrap: wrap; }
+.ph-plus.ph-old { display: flex; flex-direction: column; align-items: center; color: var(--ok); font-size: 22px; }
+.ph-plus.ph-old small { font-size: 11px; color: var(--muted); font-weight: 600; }
