@@ -96,7 +96,7 @@
   var toastTimer;
   function toast(msg, kind) {
     var t = $('#toast'); t.textContent = msg; t.className = 'show ' + (kind || '');
-    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.className = ''; }, kind === 'err' ? 5000 : 3000);
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.className = ''; }, kind === 'err' ? Math.max(5000, String(msg).length * 70) : 3000);
   }
   function perms() { return (S.session && S.session.user && S.session.user.perms) || {}; }
   function can(perm) { var P = perms(); return String(perm || '').split('|').some(function (p) { return !!P[p]; }); }
@@ -1062,7 +1062,7 @@
   }
 
   /* ---------- Kategori parts rekomendasi ---------- */
-  var DEFAULT_CATS = ['Attachments', 'Bodyworks', 'Electrics Machine Cab & Engine', 'Controls, Machine Engine & Steering', 'Hydraulics', 'Transmission', 'Brakes', 'Engine Ancillaries'];
+  var DEFAULT_CATS = ['Attachments', 'Bodyworks', 'Electrics Machine Cab & Engine', 'Controls, Machine Engine & Steering', 'Hydraulics', 'Transmission', 'Brakes', 'Engine Ancillaries', 'Engine'];
   function partCats() { var M = mhc(); return (M && M.partCategories) || DEFAULT_CATS; }
   function matchCat(x) {
     var s = String(x == null ? '' : x).trim(), L = partCats();
@@ -2423,7 +2423,12 @@
       var ex = others();
       for (var k = 0; k < spans.length; k++) {
         var c = ex.filter(function (x) { var a0 = hm2min(x.start), b0 = a0 + (x.hours || 0) * 60; return a0 < spans[k].b && spans[k].a < b0; })[0];
-        if (c) return toast('Baris ' + (k + 1) + ' bertabrakan dengan ' + c.start + '–' + c.stop + ' (' + c.cat + ')', 'err');
+        if (c) {
+          var same = c.start === spans[k].r.START && c.stop === spans[k].r.STOP;
+          var where = c.queued ? 'masih di Antrean (belum terkirim)' : 'sudah tersimpan';
+          return toast(same ? 'Baris ' + (k + 1) + ' (' + c.start + '–' + c.stop + ' ' + c.cat + ') ' + where + ' untuk tanggal ini. Hapus baris ini (✕), atau ubah kegiatan yang tersimpan dengan ✎.'
+            : 'Baris ' + (k + 1) + ' (' + spans[k].r.START + '–' + spans[k].r.STOP + ') bertabrakan dengan kegiatan yang ' + where + ': ' + c.start + '–' + c.stop + ' (' + c.cat + '). Ubah jamnya atau perbaiki kegiatan tersebut.', 'err');
+        }
       }
       var btn = ev && ev.currentTarget; if (btn) btn.disabled = true;
       var shared = Object.assign({}, f); delete shared.ROWS;
