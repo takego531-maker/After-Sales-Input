@@ -480,3 +480,5 @@ pre.log.wa { font-size: 13.5px; }
 .edit-bar { margin-bottom: 10px; flex-wrap: wrap; }
 .ph-plus.ph-old { display: flex; flex-direction: column; align-items: center; color: var(--ok); font-size: 22px; }
 .ph-plus.ph-old small { font-size: 11px; color: var(--muted); font-weight: 600; }
+/* v2.16: judul kategori parts */
+.cat-head { margin: 12px 0 4px; padding: 4px 8px; background: var(--bg); border-left: 3px solid var(--accent); font-weight: 700; font-size: 13px; border-radius: 4px; }
