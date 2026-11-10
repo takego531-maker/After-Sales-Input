@@ -2273,7 +2273,7 @@
     var sumCard = h('div', { class: 'card' },
       h('div', { class: 'mar-tot' },
         h('div', null, h('div', { class: 'muted small' }, 'Total jam'), h('div', { class: 'big' }, fmtH(T.total))),
-        h('div', null, h('div', { class: 'muted small' }, 'Jam normal'), h('div', { class: 'big' + (T.info.off ? ' small-big' : '') }, T.info.off ? T.info.off : (marCfg().workStart || '08:30').replace(':', '.') + '–' + (marCfg().workEnd || '17:30').replace(':', '.'))),
+        h('div', null, h('div', { class: 'muted small' }, 'Jam normal'), h('div', { class: 'big' + (T.info.off ? ' small-big' : '') }, T.info.off ? T.info.off : (marCfg().workStart || '08:30').replace(':', '.') + '–' + (marCfg().workEnd || '17:30').replace(':', '.') + (marCfg().zone ? ' ' + marCfg().zone : ''))),
         h('div', null, h('div', { class: 'muted small' }, 'Overtime'), h('div', { class: 'big' + (T.ot ? ' bad-t' : '') }, fmtH(T.ot)))),
       h('div', { class: 'chips' }, cfg.categories.map(function (c) { return T.cats[c] ? chip(c + ' ' + fmtH(T.cats[c]), MAR_CAT_TONE[c]) : null; })),
       M.sum && M.sum.review === cfg.review.REVISE ? h('div', { class: 'banner bad col', style: 'margin-top:10px' }, h('b', null, 'Perlu revisi dari Service Leader'),
