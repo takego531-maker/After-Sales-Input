@@ -2237,8 +2237,10 @@
     var cfg = marCfg(), dow = dowOf(date), hol = (cfg.holidays || {})[date];
     if (hol) return { off: 'Libur: ' + hol };
     if ((cfg.workDays || [1, 2, 3, 4, 5]).indexOf(dow) < 0) return { off: 'Libur (' + cfg.days[dow] + ')' };
-    return { start: hm2min(cfg.workStart || '08:30'), end: hm2min(cfg.workEnd || '17:30') };
+    var st = dow === 5 && cfg.friStart ? cfg.friStart : (cfg.workStart || '08:30');   // v2.16.4: Jumat masuk lebih awal
+    return { start: hm2min(st), end: hm2min(cfg.workEnd || '17:30') };
   }
+  function min2hm(m) { return String(Math.floor(m / 60)).padStart(2, '0') + '.' + String(m % 60).padStart(2, '0'); }
   function marOt(date, start, hours) {
     var a = hm2min(start); if (isNaN(a) || isNaN(hours)) return 0;
     var b = a + hours * 60, inside = 0;
@@ -2273,7 +2275,7 @@
     var sumCard = h('div', { class: 'card' },
       h('div', { class: 'mar-tot' },
         h('div', null, h('div', { class: 'muted small' }, 'Total jam'), h('div', { class: 'big' }, fmtH(T.total))),
-        h('div', null, h('div', { class: 'muted small' }, 'Jam normal'), h('div', { class: 'big' + (T.info.off ? ' small-big' : '') }, T.info.off ? T.info.off : (marCfg().workStart || '08:30').replace(':', '.') + '–' + (marCfg().workEnd || '17:30').replace(':', '.') + (marCfg().zone ? ' ' + marCfg().zone : ''))),
+        h('div', null, h('div', { class: 'muted small' }, 'Jam normal'), h('div', { class: 'big' + (T.info.off ? ' small-big' : '') }, T.info.off ? T.info.off : min2hm(T.info.start) + '–' + min2hm(T.info.end) + (marCfg().zone ? ' ' + marCfg().zone : ''))),
         h('div', null, h('div', { class: 'muted small' }, 'Overtime'), h('div', { class: 'big' + (T.ot ? ' bad-t' : '') }, fmtH(T.ot)))),
       h('div', { class: 'chips' }, cfg.categories.map(function (c) { return T.cats[c] ? chip(c + ' ' + fmtH(T.cats[c]), MAR_CAT_TONE[c]) : null; })),
       M.sum && M.sum.review === cfg.review.REVISE ? h('div', { class: 'banner bad col', style: 'margin-top:10px' }, h('b', null, 'Perlu revisi dari Service Leader'),
